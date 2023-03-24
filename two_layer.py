@@ -215,8 +215,7 @@ def plot_results_from_file(result_path):
     plt.show()
 
 
-def main():
-    args = get_args()
+def main(args):
     Xs, ys, Xt, yt = get_dataset(args)
     model_diff = get_model(args)
     loss, risks = train_model(model_diff, Xs, ys, Xt, yt, args.lr, args)
@@ -227,4 +226,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    args = get_args()
+    main(args)
