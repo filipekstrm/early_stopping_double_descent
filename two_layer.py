@@ -18,9 +18,13 @@ sys.path.append('code/')
 from linear_utils import linear_model
 from train_utils import save_config
 
+import wandb
+
 
 def get_args():
     parser = argparse.ArgumentParser(description='CLI parameters for training')
+    parser.add_argument('--config', type=str, default='', metavar='CONFIG',
+                        help='Config file')
     parser.add_argument('--root', type=str, default='', metavar='DIR',
                         help='Root directory')
     parser.add_argument('-t', '--iterations', type=int, default=1e4, metavar='ITERATIONS',
@@ -41,6 +45,8 @@ def get_args():
                         help='Hidden layer dimension (default: 200)')
     parser.add_argument('--batch-norm', action='store_true', default=False,
                         help='Use batch norm')
+    parser.add_argument('--no-bias', action='store_true', default=False,
+                        help='Do not use bias')
     parser.add_argument('--sigmas', type=str, default=None,
                         help='Sigmas')
     parser.add_argument('-r', '--s-range', nargs='*', type=float,
@@ -143,10 +149,10 @@ def init_model_params(model, args):
 
 def get_model(args):
     model = torch.nn.Sequential(
-        torch.nn.Linear(args.dim, args.hidden),
+        torch.nn.Linear(args.dim, args.hidden, bias=not args.no_bias),
         torch.nn.BatchNorm1d(args.hidden) if args.batch_norm else torch.nn.Identity(),
         torch.nn.ReLU(),
-        torch.nn.Linear(args.hidden, 1),
+        torch.nn.Linear(args.hidden, 1, bias=not args.no_bias),
     ).to(args.device)
     model = init_model_params(model, args)
     return model
@@ -198,10 +204,21 @@ def append_id(filename, id):
     return "{0}_{2}.{1}".format(*filename.rsplit('.', 1) + [id])
 
 
-def save_results(risks, args):
-    result_path = os.path.join('two_layer_runs', f'lr={args.lr[0]}_{args.lr[1]}.csv')
+def get_run_name(args):
+    run_name = f'lr={args.lr[0]}_{args.lr[1]}'
     if args.batch_norm:
-        result_path = append_id(result_path, 'batch-norm')
+        run_name += "batch_norm"
+    return run_name
+
+
+def get_result_path(args):
+    run_name = get_run_name(args)
+    result_path = os.path.join("two_layer_results", run_name + ".csv")
+    return result_path
+
+
+def save_results(risks, args):
+    result_path = get_result_path(args)
     data = pd.DataFrame(risks)
     data.to_csv(result_path, header=False, index=False)
 
@@ -216,6 +233,7 @@ def plot_results_from_file(result_path):
 
 
 def main(args):
+    wandb.init(project="double_descent", name=get_run_name(args))
     Xs, ys, Xt, yt = get_dataset(args)
     model_diff = get_model(args)
     loss, risks = train_model(model_diff, Xs, ys, Xt, yt, args.lr, args)
