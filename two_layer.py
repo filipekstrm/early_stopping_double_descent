@@ -233,7 +233,7 @@ def plot_results_from_file(result_path):
 
 
 def main(args):
-    wandb.init(project="double_descent", name=get_run_name(args))
+    wandb.init(project="double_descent", name=get_run_name(args), config=args)
     Xs, ys, Xt, yt = get_dataset(args)
     model_diff = get_model(args)
     loss, risks = train_model(model_diff, Xs, ys, Xt, yt, args.lr, args)
