@@ -207,7 +207,7 @@ def append_id(filename, id):
 def get_run_name(args):
     run_name = f'lr={args.lr[0]}_{args.lr[1]}'
     if args.batch_norm:
-        run_name += "batch_norm"
+        run_name += "_batch_norm"
     return run_name
 
 
