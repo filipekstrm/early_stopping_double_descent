@@ -47,6 +47,8 @@ def get_args():
                         help='Use batch norm')
     parser.add_argument('--no-bias', action='store_true', default=False,
                         help='Do not use bias')
+    parser.add_argument('--linear', action='store_true', default=False,
+                        help='Linear activation function')
     parser.add_argument('--sigmas', type=str, default=None,
                         help='Sigmas')
     parser.add_argument('-r', '--s-range', nargs='*', type=float,
@@ -151,7 +153,7 @@ def get_model(args):
     model = torch.nn.Sequential(
         torch.nn.Linear(args.dim, args.hidden, bias=not args.no_bias),
         torch.nn.BatchNorm1d(args.hidden) if args.batch_norm else torch.nn.Identity(),
-        torch.nn.ReLU(),
+        torch.nn.Identity() if args.linear else torch.nn.ReLU(),
         torch.nn.Linear(args.hidden, 1, bias=not args.no_bias),
     ).to(args.device)
     model = init_model_params(model, args)
@@ -235,8 +237,9 @@ def plot_results_from_file(result_path):
 def main(args):
     wandb.init(project="double_descent", name=get_run_name(args), config=args)
     Xs, ys, Xt, yt = get_dataset(args)
-    model_diff = get_model(args)
-    loss, risks = train_model(model_diff, Xs, ys, Xt, yt, args.lr, args)
+    model = get_model(args)
+    print(model)
+    loss, risks = train_model(model, Xs, ys, Xt, yt, args.lr, args)
     save_results(risks, args)
 
     if args.plot:  # for debugging

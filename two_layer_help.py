@@ -47,6 +47,8 @@ def get_args():
                         help='Use batch norm')
     parser.add_argument('--no-bias', action='store_true', default=False,
                         help='Do not use bias')
+    parser.add_argument('--linear', action='store_true', default=False,
+                        help='Linear activation function')
     parser.add_argument('--sigmas', type=str, default=None,
                         help='Sigmas')
     parser.add_argument('-r', '--s-range', nargs='*', type=float,

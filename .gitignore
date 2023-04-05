@@ -30,3 +30,9 @@ Thumbs.db
 **/*.md
 **/*Copy*.ipynb
 **/*draft*
+
+# Filip's additions
+.idea/
+wandb/
+results/
+plots/
