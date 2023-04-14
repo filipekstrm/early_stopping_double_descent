@@ -98,6 +98,7 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
     risk_fn = torch.nn.L1Loss(reduction='mean') if args.risk_loss == 'L1' else loss_fn
     losses = []
     risks = []
+    weights_norm = np.zeros((2, int(args.iterations)))
     model.train()
     for t in range(int(args.iterations)):
         y_pred = model(Xs)
@@ -115,6 +116,7 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
             for param in model.parameters():
                 if len(param.shape) > 1:
                     i += 1
+                    weights_norm[i, t] = float(torch.norm(param.data))
                 param.data -= stepsize[i] * param.grad
 
         with torch.no_grad():
@@ -128,7 +130,7 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
                 print(t, risk.item())
             model.train()
 
-    return np.array(losses), np.array(risks)
+    return {"loss": np.array(losses), "risk": np.array(risks), "weight_norm": weights_norm}
 
 
 def init_model_params(model, args):
@@ -202,6 +204,26 @@ def plot_results(risks, risks_same, args):
     plt.show()
 
 
+def plot_individual_run(risks, args, label, figname=None):
+    geo_samples = [int(i) for i in np.geomspace(1, len(risks) - 1, num=700)]
+    cmap = matplotlib.colormaps['viridis']
+    colorList = [cmap(50 / 1000), cmap(350 / 1000)]
+
+    #fig = plt.figure()
+    fig, ax = plt.subplots()
+    ax.set_xscale('log')
+    ax.plot(geo_samples, risks[geo_samples],
+        color=colorList[1],
+        label=label,
+        lw=4)
+    plt.legend()
+
+    plt.title(fr"$\eta_{{\mathbf{{W}}}} = {args.lr[0]}$, $\eta_{{\mathbf{{v}}}} = {args.lr[1]}$")
+    if figname is not None:
+        plt.savefig(os.path.join("plots", figname), bbox_inches=None)
+    plt.show()
+
+
 def append_id(filename, id):
     return "{0}_{2}.{1}".format(*filename.rsplit('.', 1) + [id])
 
@@ -225,12 +247,12 @@ def save_results(risks, args):
     data.to_csv(result_path, header=False, index=False)
 
 
-def plot_results_from_file(result_path):
+def plot_results_from_file(result_path, args):
     """
     For debugging
     """
     data = pd.read_csv(result_path, header=None)
-    data.plot()
+    plot_individual_run(data[0], args, "risk")
     plt.show()
 
 
@@ -239,11 +261,14 @@ def main(args):
     Xs, ys, Xt, yt = get_dataset(args)
     model = get_model(args)
     print(model)
-    loss, risks = train_model(model, Xs, ys, Xt, yt, args.lr, args)
-    save_results(risks, args)
+    out = train_model(model, Xs, ys, Xt, yt, args.lr, args)
+    save_results(out["risk"], args)
 
     if args.plot:  # for debugging
-        plot_results_from_file(os.path.join('two_layer_runs', f'lr={args.lr[0]}_{args.lr[1]}.csv'))
+        plot_results_from_file(get_result_path(args), args)
+        plot_individual_run(out["risk"], args, "Risk", append_id(get_run_name(args) + ".pdf", "risk"))
+        plot_individual_run(out["weight_norm"][0], args, "W norm", append_id(get_run_name(args) + ".pdf", "W_norm"))
+        plot_individual_run(out["weight_norm"][1], args, "v norm", append_id(get_run_name(args) + ".pdf", "v_norm"))
 
 
 if __name__ == "__main__":
