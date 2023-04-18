@@ -69,6 +69,8 @@ def get_args():
                         help='Save the results for plots')
     parser.add_argument('--plot', action='store_true', default=False,
                         help='Plot the results')
+    parser.add_argument('--eigen', action='store_true', default=False,
+                        help='Compute eigenvalue')
     parser.add_argument('--details', type=str, metavar='N',
                         default='no_detail_given',
                         help='details about the experimental setup')

@@ -18,6 +18,8 @@ sys.path.append('code/')
 from linear_utils import linear_model
 from train_utils import save_config
 
+from sharpness_utilities import sharpness
+
 import wandb
 
 
@@ -67,6 +69,8 @@ def get_args():
                         help='Save the results for plots')
     parser.add_argument('--plot', action='store_true', default=False,
                         help='Plot the results')
+    parser.add_argument('--eigen', action='store_true', default=False,
+                        help='Compute eigenvalue')
     parser.add_argument('--details', type=str, metavar='N',
                         default='no_detail_given',
                         help='details about the experimental setup')
@@ -98,6 +102,7 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
     risk_fn = torch.nn.L1Loss(reduction='mean') if args.risk_loss == 'L1' else loss_fn
     losses = []
     risks = []
+    eigenvals = []
     weights_norm = np.zeros((2, int(args.iterations)))
     model.train()
     for t in range(int(args.iterations)):
@@ -119,8 +124,8 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
                     weights_norm[i, t] = float(torch.norm(param.data))
                 param.data -= stepsize[i] * param.grad
 
+        model.eval()
         with torch.no_grad():
-            model.eval()
             yt_pred = model(Xt)
 
             risk = risk_fn(yt_pred, yt)
@@ -128,9 +133,12 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
 
             if not t % args.print_freq:
                 print(t, risk.item())
-            model.train()
+        if args.eigen:
+            evals = sharpness.get_hessian_eigenvalues(model, risk_fn, sharpness.DatasetWrapper(Xs, ys), args)
+            eigenvals.append(float(evals[0]))
+        model.train()
 
-    return {"loss": np.array(losses), "risk": np.array(risks), "weight_norm": weights_norm}
+    return {"loss": np.array(losses), "risk": np.array(risks), "weight_norm": weights_norm, "eigenvals": np.array(eigenvals)}
 
 
 def init_model_params(model, args):
@@ -269,6 +277,8 @@ def main(args):
         plot_individual_run(out["risk"], args, "Risk", append_id(get_run_name(args) + ".pdf", "risk"))
         plot_individual_run(out["weight_norm"][0], args, "W norm", append_id(get_run_name(args) + ".pdf", "W_norm"))
         plot_individual_run(out["weight_norm"][1], args, "v norm", append_id(get_run_name(args) + ".pdf", "v_norm"))
+        if args.eigen:
+            plot_individual_run(out["eigenvals"], args, "Leading eigenvalue of Hessian", append_id(get_run_name(args) + ".pdf", "eigenvals"))
 
 
 if __name__ == "__main__":
