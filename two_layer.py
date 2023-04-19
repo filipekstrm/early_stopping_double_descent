@@ -134,7 +134,7 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
             if not t % args.print_freq:
                 print(t, risk.item())
         if args.eigen:
-            evals = sharpness.get_hessian_eigenvalues(model, risk_fn, sharpness.DatasetWrapper(Xs, ys), args)
+            evals = sharpness.get_hessian_eigenvalues(model, loss_fn, sharpness.DatasetWrapper(Xs, ys), args)
             eigenvals.append(float(evals[0]))
         model.train()
 
