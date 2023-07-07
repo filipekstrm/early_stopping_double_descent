@@ -104,6 +104,7 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
     risks = []
     eigenvals = []
     weights_norm = np.zeros((2, int(args.iterations)))
+    grad_norms = np.zeros((2, int(args.iterations)))
     model.train()
     for t in range(int(args.iterations)):
         y_pred = model(Xs)
@@ -121,7 +122,8 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
             for param in model.parameters():
                 if len(param.shape) > 1:
                     i += 1
-                    weights_norm[i, t] = float(torch.norm(param.data))
+                    weights_norm[i, t] = float(torch.norm(param.data.flatten()))
+                    grad_norms[i, t] = float(torch.norm(param.grad.flatten()))
                 param.data -= stepsize[i] * param.grad
 
         model.eval()
@@ -138,7 +140,8 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
             eigenvals.append(float(evals[0]))
         model.train()
 
-    return {"loss": np.array(losses), "risk": np.array(risks), "weight_norm": weights_norm, "eigenvals": np.array(eigenvals)}
+    return {"loss": np.array(losses), "risk": np.array(risks), "weight_norm": weights_norm,
+            "eigenvals": np.array(eigenvals), "grad_norm": grad_norms}
 
 
 def init_model_params(model, args):
@@ -249,9 +252,11 @@ def get_result_path(args):
     return result_path
 
 
-def save_results(risks, args):
+def save_results(args, risks, losses=None):
     result_path = get_result_path(args)
     data = pd.DataFrame(risks)
+    if losses is not None:
+        data[1] = losses
     data.to_csv(result_path, header=False, index=False)
 
 
@@ -270,7 +275,7 @@ def main(args):
     model = get_model(args)
     print(model)
     out = train_model(model, Xs, ys, Xt, yt, args.lr, args)
-    save_results(out["risk"], args)
+    save_results(args, out["risk"], out["loss"])
 
     if args.plot:  # for debugging
         plot_results_from_file(get_result_path(args), args)
@@ -279,7 +284,9 @@ def main(args):
         plot_individual_run(out["weight_norm"][1], args, "v norm", append_id(get_run_name(args) + ".pdf", "v_norm"))
         if args.eigen:
             plot_individual_run(out["eigenvals"], args, "Leading eigenvalue of Hessian", append_id(get_run_name(args) + ".pdf", "eigenvals"))
-
+        plot_individual_run(out["grad_norm"][0]*args.lr[0], args, " effective grad(W) norm", append_id(get_run_name(args) + ".pdf", "w_grad_norm"))
+        plot_individual_run(out["grad_norm"][1]*args.lr[1], args, "effective grad(v) norm",
+                            append_id(get_run_name(args) + ".pdf", "v_grad_norm"))
 
 if __name__ == "__main__":
     args = get_args()
