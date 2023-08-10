@@ -241,14 +241,24 @@ def append_id(filename, id):
 
 def get_run_name(args):
     run_name = f'lr={args.lr[0]}_{args.lr[1]}'
+    
     if args.batch_norm:
         run_name += "_batch_norm"
+    
+    if isinstance(args.sigmas, int) or isinstance(args.sigmas, float):
+        run_name += "_uniform_noise"
+        
     return run_name
 
 
 def get_result_path(args):
     run_name = get_run_name(args)
-    result_path = os.path.join("two_layer_results", run_name + ".csv")
+    
+    base_dir = "two_layer_results"
+    if not os.path.exists(base_dir):
+        os.makedirs(base_dir)  # (io.get_checkpoint_root())
+    
+    result_path = os.path.join(base_dir, run_name + ".csv")
     return result_path
 
 
