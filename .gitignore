@@ -36,3 +36,6 @@ Thumbs.db
 wandb/
 results/
 plots/
+
+# Amanda's additions
+two_layer_results/
