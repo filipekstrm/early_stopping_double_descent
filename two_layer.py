@@ -15,7 +15,7 @@ import torch
 
 import sys
 sys.path.append('code/')
-from linear_utils import linear_model
+from linear_utils import linear_model, is_float
 from train_utils import save_config
 
 from sharpness_utilities import sharpness
@@ -245,7 +245,7 @@ def get_run_name(args):
     if args.batch_norm:
         run_name += "_batch_norm"
     
-    if isinstance(args.sigmas, int) or isinstance(args.sigmas, float):
+    if is_float(args.sigmas):
         run_name += "_uniform_noise"
         
     return run_name

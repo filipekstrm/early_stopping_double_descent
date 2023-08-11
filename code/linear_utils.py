@@ -13,7 +13,8 @@ class linear_model():
         
         self.sigma_noise = sigma_noise
         
-        if isinstance(sigmas, int) or isinstance(sigmas, float):
+        if is_float(sigmas):
+            sigmas = float(sigmas)
             if normalized:
                 self.sigmas = np.array([sigmas] * d) / np.sqrt(self.d)
             else:
@@ -58,3 +59,14 @@ class linear_model():
             Xs += [x]
             ys += [y]
         return np.array(Xs),np.array(ys)
+        
+        
+def is_float(element: any) -> bool:
+
+    if element is None: 
+        return False
+    try:
+        float(element)
+        return True
+    except ValueError:
+        return False

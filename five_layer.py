@@ -50,71 +50,22 @@ OUTPUTS_SUM_LIST = []
 OUTPUTS_SUMNORMSQUARED_LIST = []
 
 
-
+# NOTE: I (Amanda) have restructured the code a bit. Hope that I haven't f****d up any important ordering.
 def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
 
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
-
-    # create model
-    if args.pretrained:
-        print("=> using pre-trained model '{}'".format(args.model))
-        model = models.__dict__[args.model](pretrained=True)
-    else:
-        print("=> creating model '{}'".format(args.model))
-        model = model_select.BaseModel.create(args.model, **args.model_config)
-    
-    
-    if args.gpu is not None:
         torch.cuda.set_device(args.gpu)
-        model = model.cuda(args.gpu)
-    else:
-        # DataParallel will divide and allocate batch_size to all available GPUs
-        if args.model.startswith('alexnet') or args.model.startswith('vgg'):
-            model.features = torch.nn.DataParallel(model.features)
-            model.cuda()
-        else:
-            model = torch.nn.DataParallel(model).cuda()
 
-    # define loss function (criterion) and optimizer
-    if args.loss in ['cross', 'cross_entropy', 'entropy']:
-        criterion = nn.CrossEntropyLoss().cuda(args.gpu)
-    
-    elif args.loss in ['l2', 'l2_squared', 'squared', 'MSE']:
-        print('[INFO] Using MSE loss function instead of Cross Entropy.')
+    train_loader, val_loader, val_loader2 = get_data(args)
+    model = get_model(args)
+
+    if args.loss in ['l2', 'l2_squared', 'squared', 'MSE']:
         args.loss = 'l2'
-        criterion = nn.MSELoss().cuda(args.gpu)
-
-    if args.opt.lower() == 'sgd':
-        optimizer = torch.optim.SGD(model.parameters(), args.lr,
-                                    momentum=args.momentum,
-                                    weight_decay=args.weight_decay)
-    elif args.opt.lower() == 'adam':
-        print('[INFO] Using Adam optimizer instead of SGD.')
-        optimizer = torch.optim.Adam(model.parameters(), args.lr,
-                                    weight_decay=args.weight_decay)
-    elif args.opt.lower() == 'lbfgs':
-        print('[INFO] Using LBFGS optimizer instead of SGD.')
-        optimizer = torch.optim.LBFGS(model.parameters(), args.lr,
-                                      history_size=20
-                                     )
-    else:
-        raise ValueError('Incorrect optimizer selection {}'.format(args.opt))
-
-    if args.initial_lr:
-        param_setup = [{'params': cur_lay.parameters()} 
-                       for i, cur_lay in enumerate(model)
-                       if 'weight' in dir(cur_lay)]
-        optimizer = torch.optim.SGD(param_setup, args.lr,
-                                    momentum=args.momentum,
-                                    weight_decay=args.weight_decay)
-        
     
-    if args.schedule_lr:
-        scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, 
-                                                      args.lr / 100, args.lr)
-
+    criterion, optimizer, scheduler = get_training_setup(model, args)
+   
     # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
@@ -133,7 +84,75 @@ def main_worker(gpu, ngpus_per_node, args):
             print("=> no checkpoint found at '{}'".format(args.resume))
 
     cudnn.benchmark = True
+    
+    # TODO: I would like to move the content of following function to get_model and get_training_setup, but unsure if the particular order is important
+    model, optimizer = scale_weights_and_lr(model, args)
+    
+    if args.schedule_lr:
+        scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, 
+                                                      args.lr / 100, args.lr)
+    else: 
+        scheduler = None
+    
+    save_config(args)
+    
+    train_model(train_loader, val_loader, val_loader2, model, criterion, optimizer, log_file, args)
+    
+def scale_weights_and_lr(model, args):
+    
+    # TODO: scaling the weights of the model manually
+    if args.scale_weights:
+        scale_dict = {}
+        for cur_l, cur_w in enumerate(cur_weights):
+            if not (cur_w.ndim > 2):
+                continue
+            scale_dict['layer_' + str(layer_idx[cur_l])] = np.linalg.norm(cur_w.flatten()).item()
+        rescale_weights(model, scale_dict)
+        
+        
+     if args.scale_lr:
+        if not args.opt.lower() == 'sgd':
+            raise ValueError('SGD must be selected when learning rates are scaled!')
+        if isinstance(args.scale_lr, dict):
+            opt_lr_dict = {k: v for k, v in args.scale_lr.items()}
+        else:
+            scale_dict = {}
+            for cur_l, cur_w in enumerate(cur_weights):
+                if not (cur_w.ndim > 2):
+                    continue
+                scale_dict['layer_' + str(layer_idx[cur_l])] = np.linalg.norm(cur_w.flatten()).item()
 
+            opt_lr_dict = get_lr_scales(model, args.lr, scale_dict)
+        
+        param_setup = [{'params': cur_lay.parameters(), 'lr': opt_lr_dict[str(i)]} 
+                       if (str(i) in opt_lr_dict)
+                       else {'params': cur_lay.parameters()}
+                       for i, cur_lay in enumerate(model)
+                       if 'weight' in dir(cur_lay)]
+        args.initial_lr = [{'lr': opt_lr_dict[str(i)]} 
+                           if (str(i) in opt_lr_dict)
+                           else {'lr': args.lr}
+                           for i, cur_lay in enumerate(model)
+                           if 'weight' in dir(cur_lay)]
+        optimizer = torch.optim.SGD(param_setup, args.lr,
+                                    momentum=args.momentum,
+                                    weight_decay=args.weight_decay)
+        
+
+    # TODO: testing scaled initialization
+    if 'testing_scaled_initialization' in args.details:
+        print('Warning: Scaling the weights of the linear layer by {}!'.format(float(args.details.split()[-1])))
+        if args.resume:
+            torch.nn.init.kaiming_uniform_(model[-1].weight, a=np.sqrt(5))
+            fan_in, _ = torch.nn.init._calculate_fan_in_and_fan_out(model[-1].weight)
+            bound = 1 / np.sqrt(fan_in)
+            with torch.no_grad():
+                model[-1].bias.uniform_(-bound, bound)
+        scale_initialization(model, [0,3,7,11], float(args.details.split()[-1]))
+
+    return model, optimizer
+
+def get_data(args):
     # Data loading code
     main_file = args.root / args.main
     test_file = args.root / args.test
@@ -238,6 +257,71 @@ def main_worker(gpu, ngpus_per_node, args):
             sub_dataset,
             batch_size=args.batch_size, shuffle=False,
             num_workers=args.workers, pin_memory=True)
+            
+    return train_loader, val_loader, val_loader2
+
+
+def get_model(args):
+    # create model
+    if args.pretrained:
+        print("=> using pre-trained model '{}'".format(args.model))
+        model = models.__dict__[args.model](pretrained=True)
+    else:
+        print("=> creating model '{}'".format(args.model))
+        model = model_select.BaseModel.create(args.model, **args.model_config)
+    
+    if args.gpu is not None:
+        model = model.cuda(args.gpu)
+    else:
+        # DataParallel will divide and allocate batch_size to all available GPUs
+        if args.model.startswith('alexnet') or args.model.startswith('vgg'):
+            model.features = torch.nn.DataParallel(model.features)
+            model.cuda()
+        else:
+            model = torch.nn.DataParallel(model).cuda()
+            
+    return model 
+
+
+def get_training_setup(args):
+    # define loss function (criterion) and optimizer
+    if args.loss in ['cross', 'cross_entropy', 'entropy']:
+        criterion = nn.CrossEntropyLoss().cuda(args.gpu)
+    
+    elif args.loss in ['l2', 'l2_squared', 'squared', 'MSE']:
+        print('[INFO] Using MSE loss function instead of Cross Entropy.')
+        args.loss = 'l2'
+        criterion = nn.MSELoss().cuda(args.gpu)
+
+    if args.opt.lower() == 'sgd':
+        optimizer = torch.optim.SGD(model.parameters(), args.lr,
+                                    momentum=args.momentum,
+                                    weight_decay=args.weight_decay)
+    elif args.opt.lower() == 'adam':
+        print('[INFO] Using Adam optimizer instead of SGD.')
+        optimizer = torch.optim.Adam(model.parameters(), args.lr,
+                                    weight_decay=args.weight_decay)
+    elif args.opt.lower() == 'lbfgs':
+        print('[INFO] Using LBFGS optimizer instead of SGD.')
+        optimizer = torch.optim.LBFGS(model.parameters(), args.lr,
+                                      history_size=20
+                                     )
+    else:
+        raise ValueError('Incorrect optimizer selection {}'.format(args.opt))
+
+    if args.initial_lr:
+        param_setup = [{'params': cur_lay.parameters()} 
+                       for i, cur_lay in enumerate(model)
+                       if 'weight' in dir(cur_lay)]
+        optimizer = torch.optim.SGD(param_setup, args.lr,
+                                    momentum=args.momentum,
+                                    weight_decay=args.weight_decay)
+        
+    return criterion, optimizer
+   
+
+def train_model(train_loader, val_loader, val_loader2, model, criterion, optimizer, log_file, args):
+
 
     if args.evaluate:
         save_config(args)
@@ -256,6 +340,7 @@ def main_worker(gpu, ngpus_per_node, args):
         save_config(args)
         return
 
+
     # TODO: tracking weights of the model
     if args.track_weights:
         layer_idx = [i for i, cl in enumerate(model) if 'weight' in dir(cl)]
@@ -267,58 +352,7 @@ def main_worker(gpu, ngpus_per_node, args):
         if args.track_weights == 'norm':
             w_norm_dict = {('layer_'+str(l)): 0 for i, l in enumerate(layer_idx) 
                              if cur_weights[i].ndim > 1}
-    
-    # TODO: scaling the weights of the model manually
-    if args.scale_weights:
-        scale_dict = {}
-        for cur_l, cur_w in enumerate(cur_weights):
-            if not (cur_w.ndim > 2):
-                continue
-            scale_dict['layer_' + str(layer_idx[cur_l])] = np.linalg.norm(cur_w.flatten()).item()
-        rescale_weights(model, scale_dict)
-        
-    if args.scale_lr:
-        if not args.opt.lower() == 'sgd':
-            raise ValueError('SGD must be selected when learning rates are scaled!')
-        if isinstance(args.scale_lr, dict):
-            opt_lr_dict = {k: v for k, v in args.scale_lr.items()}
-        else:
-            scale_dict = {}
-            for cur_l, cur_w in enumerate(cur_weights):
-                if not (cur_w.ndim > 2):
-                    continue
-                scale_dict['layer_' + str(layer_idx[cur_l])] = np.linalg.norm(cur_w.flatten()).item()
 
-            opt_lr_dict = get_lr_scales(model, args.lr, scale_dict)
-        
-        param_setup = [{'params': cur_lay.parameters(), 'lr': opt_lr_dict[str(i)]} 
-                       if (str(i) in opt_lr_dict)
-                       else {'params': cur_lay.parameters()}
-                       for i, cur_lay in enumerate(model)
-                       if 'weight' in dir(cur_lay)]
-        args.initial_lr = [{'lr': opt_lr_dict[str(i)]} 
-                           if (str(i) in opt_lr_dict)
-                           else {'lr': args.lr}
-                           for i, cur_lay in enumerate(model)
-                           if 'weight' in dir(cur_lay)]
-        optimizer = torch.optim.SGD(param_setup, args.lr,
-                                    momentum=args.momentum,
-                                    weight_decay=args.weight_decay)
-        
-    
-    # TODO: testing scaled initialization
-    if 'testing_scaled_initialization' in args.details:
-        print('Warning: Scaling the weights of the linear layer by {}!'.format(float(args.details.split()[-1])))
-        if args.resume:
-            torch.nn.init.kaiming_uniform_(model[-1].weight, a=np.sqrt(5))
-            fan_in, _ = torch.nn.init._calculate_fan_in_and_fan_out(model[-1].weight)
-            bound = 1 / np.sqrt(fan_in)
-            with torch.no_grad():
-                model[-1].bias.uniform_(-bound, bound)
-        scale_initialization(model, [0,3,7,11], float(args.details.split()[-1]))
-
-
-    save_config(args)
     train_log = []
     log_file = args.outpath / 'log.json'
 
@@ -624,13 +658,8 @@ def accuracy(output, target, topk=(1,), track=False):
         return res
 
 
-# %%
-if __name__ == "__main__":
-
-    # TODO:
-    # Turning off data augmentations random_crop and random_flip
-
-    # get CLI parameters
+def get_args():
+# get CLI parameters
     config_parser = parser = argparse.ArgumentParser(description='Training Config', add_help=False)
     parser.add_argument('-c', '--config', type=str, default='', metavar='FILE',
                         help='JSON file containing the configuration dictionary')
@@ -769,6 +798,12 @@ if __name__ == "__main__":
 
     args.scale_lr = {'17': args.lr * args.scale_lr} if args.scale_lr else {}
 
+
+# %%
+if __name__ == "__main__":
+
+    args = get_args()
+    
     # rescale weights
     scale_weights = False
 
