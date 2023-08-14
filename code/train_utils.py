@@ -6,10 +6,7 @@ from PIL import Image
 
 import torch
 from torch.utils.data import Dataset
-
-
-
-
+import torchvision
 
 
 class CandidateDataset(Dataset):
@@ -47,13 +44,19 @@ class CandidateDataset(Dataset):
         return sample, target
     
 def np_loader(filename, train=True):
-    data = np.load(filename)
+        #data = np.load(filename)
     if train:
-        samples = data['X_train'].transpose(0, 3, 1, 2)
-        targets = data['y_train']
+        dataset = torchvision.datasets.CIFAR10(root='./data', train=True,
+                                                download=True)
+
+        #samples = data['X_train'].transpose(0, 3, 1, 2)
+        #targets = data['y_train']
     else:
-        samples = data['X_test'].transpose(0, 3, 1, 2)
-        targets = data['y_test']
+        #samples = data['X_test'].transpose(0, 3, 1, 2)
+        #targets = data['y_test']
+        dataset = torchvision.datasets.CIFAR10(root='./data', train=False,
+                                       download=True)
+    samples, targets = dataset.data.transpose(0, 3, 1, 2), dataset.targets        
     return samples, targets
 
 

@@ -39,6 +39,8 @@ import torchvision.models as models
 
 import model_select
 
+import wandb
+
 
 # %%
 cifar10_classes = ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
@@ -53,6 +55,10 @@ OUTPUTS_SUMNORMSQUARED_LIST = []
 # NOTE: I (Amanda) have restructured the code a bit. Hope that I haven't f****d up any important ordering.
 def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
+    
+    args.outpath = get_result_dir()
+    wandb.init(project="double_descent_five_layer", name=get_run_name(args), config=args)
+    
 
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
@@ -110,7 +116,7 @@ def scale_weights_and_lr(model, args):
         rescale_weights(model, scale_dict)
         
         
-     if args.scale_lr:
+    if args.scale_lr:
         if not args.opt.lower() == 'sgd':
             raise ValueError('SGD must be selected when learning rates are scaled!')
         if isinstance(args.scale_lr, dict):
@@ -257,6 +263,8 @@ def get_data(args):
             sub_dataset,
             batch_size=args.batch_size, shuffle=False,
             num_workers=args.workers, pin_memory=True)
+    else:
+        val_loader2 = None
             
     return train_loader, val_loader, val_loader2
 
@@ -335,7 +343,7 @@ def train_model(train_loader, val_loader, val_loader2, model, criterion, optimiz
     if args.compute_jacobian_svd:
         sv, vconv, vfc = get_jacobian_svd(train_loader, model, args, average_batches=args.average_batches)
 
-        svd_file = args.outpath / 'jacobian_svd.npz'
+        svd_file = args.outpath / get_run_name(args) + '_jacobian_svd.npz'
         np.savez(svd_file, sv=sv, vconv=vconv, vfc=vfc)
         save_config(args)
         return
@@ -346,7 +354,7 @@ def train_model(train_loader, val_loader, val_loader2, model, criterion, optimiz
         layer_idx = [i for i, cl in enumerate(model) if 'weight' in dir(cl)]
         cur_weights = get_weights(model, layer_idx)
         if args.track_weights == 'filters':
-            filter_w_file = args.outpath / 'filter_weights.pickle'
+            filter_w_file = args.outpath / get_run_name(args) + '_filter_weights.pickle'
             filter_w_dict = {('layer_'+str(l)): [] for i, l in enumerate(layer_idx) 
                              if cur_weights[i].ndim > 2}
         if args.track_weights == 'norm':
@@ -354,7 +362,7 @@ def train_model(train_loader, val_loader, val_loader2, model, criterion, optimiz
                              if cur_weights[i].ndim > 1}
 
     train_log = []
-    log_file = args.outpath / 'log.json'
+    log_file = args.outpath / get_run_name(args) + '_log.json'
 
     for epoch in range(args.start_epoch, args.epochs):
         if (epoch < args.decay_max_epochs) and (not args.schedule_lr):
@@ -402,7 +410,7 @@ def train_model(train_loader, val_loader, val_loader2, model, criterion, optimiz
             bias2_unbias = test_loss_sum / (args.split + 1) - variance_unbias
         
             epoch_log.update({'bias': bias2_unbias.item(), 'variance': variance_unbias.item()})
-            with open(args.outpath / '{}.pickle'.format(epoch), 'wb') as fn:
+            with open(args.outpath / get_run_name(args) + '_{}.pickle'.format(epoch), 'wb') as fn:
                 pickle.dump([outputs_sum, outputs_sumnormsquared, test_loss_sum], fn)
 
         # compute the jacobian of the network
@@ -458,7 +466,7 @@ def train_model(train_loader, val_loader, val_loader2, model, criterion, optimiz
             'state_dict': model.state_dict(),
             'best_acc1': best_acc1,
             'optimizer' : optimizer.state_dict(),
-        }, is_best, outdir=(args.outpath if args.secure_checkpoint else None))
+        }, is_best, filename=(args.outpath if args.secure_checkpoint else None))
 
 
 def compute_bias_variance(net, testloader, args, outputs_sum, outputs_sumnormsquared):
@@ -658,6 +666,34 @@ def accuracy(output, target, topk=(1,), track=False):
         return res
 
 
+def get_run_name(args):
+    run_name = f'lr={args.lr}_{args.lr * args.scale-lr}'
+        
+    return run_name
+    
+
+def get_result_dir():
+    base_dir = "five_layer_results"
+    if not os.path.exists(base_dir):
+        os.makedirs(base_dir)  # (io.get_checkpoint_root())
+    
+    return base_dir
+
+def get_result_path(args):
+    run_name = get_run_name(args)
+    base_dir = get_result_dir()
+    
+    result_path = os.path.join(base_dir, run_name + ".csv")
+    return result_path
+
+
+def save_results(args, risks, losses=None):
+    result_path = get_result_path(args)
+    data = pd.DataFrame(risks)
+    if losses is not None:
+        data[1] = losses
+    data.to_csv(result_path, header=False, index=False)
+
 def get_args():
 # get CLI parameters
     config_parser = parser = argparse.ArgumentParser(description='Training Config', add_help=False)
@@ -803,7 +839,7 @@ def get_args():
 if __name__ == "__main__":
 
     args = get_args()
-    
+
     # rescale weights
     scale_weights = False
 

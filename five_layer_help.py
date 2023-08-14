@@ -15,6 +15,9 @@ from IPython.core.debugger import set_trace
 from PIL import Image
 import pickle
 import argparse
+import torch
+
+import five_layer
 
 import sys
 repo_root = os.path.join(os.getcwd(), './code/')
@@ -129,7 +132,6 @@ def get_args():
                         default=['no', 'details', 'given'],
                         help='details about the experimental setup')
 
-
     def _parse_args():
         # Do we have a config file to parse?
         args_config, remaining = config_parser.parse_known_args()
@@ -175,21 +177,21 @@ if __name__ == "__main__":
 
     # %%
 
-    current_date = str(datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
-    args.outpath = (pathlib.Path.cwd() / 'results' / args.model / 
-                    os.path.splitext(args.main)[0] / current_date)
+    #current_date = str(datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
+    #args.outpath = (pathlib.Path.cwd() / 'results' / args.model / 
+                    os.path.splitext(args.main)[0]) # / current_date)
 
-    if not args.outpath.exists():
-        args.outpath.mkdir(parents=True)
-    else:
-        i = 1
-        new_outpath = args.outpath.parent / (args.outpath.name + '_' + str(i))
-        while new_outpath.exists():
-            i += 1
-            new_outpath = args.outpath.parent / (args.outpath.name + '_' + str(i))
-            assert count < 100, "Could not find an appropriate output path!"
-        args.outpath = new_outpath
-        args.outpath.mkdir(parents=True)
+    #if not args.outpath.exists():
+    #    args.outpath.mkdir(parents=True)
+    #else:
+    #    i = 1
+    #    new_outpath = args.outpath.parent / (args.outpath.name + '_' + str(i))
+    #    while new_outpath.exists():
+    #        i += 1
+    #        new_outpath = args.outpath.parent / (args.outpath.name + '_' + str(i))
+    #        assert count < 100, "Could not find an appropriate output path!"
+    #    args.outpath = new_outpath
+    #    args.outpath.mkdir(parents=True)
         
 
     if args.seed is not None:
