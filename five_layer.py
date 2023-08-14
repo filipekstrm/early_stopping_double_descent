@@ -70,29 +70,13 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.loss in ['l2', 'l2_squared', 'squared', 'MSE']:
         args.loss = 'l2'
     
-    criterion, optimizer, scheduler = get_training_setup(model, args)
-   
-    # optionally resume from a checkpoint
-    if args.resume:
-        if os.path.isfile(args.resume):
-            print("=> loading checkpoint '{}'".format(args.resume))
-            checkpoint = torch.load(args.resume)
-            args.start_epoch = checkpoint['epoch']
-            best_acc1 = checkpoint['best_acc1']
-            if args.gpu is not None:
-                # best_acc1 may be from a checkpoint from a different GPU
-                best_acc1 = best_acc1.to(args.gpu)
-            model.load_state_dict(checkpoint['state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            print("=> loaded checkpoint '{}' (epoch {})"
-                  .format(args.resume, checkpoint['epoch']))
-        else:
-            print("=> no checkpoint found at '{}'".format(args.resume))
+    criterion, optimizer = get_training_setup(model, args)
+
 
     cudnn.benchmark = True
     
     # TODO: I would like to move the content of following function to get_model and get_training_setup, but unsure if the particular order is important
-    model, optimizer = scale_weights_and_lr(model, args)
+    model, optimizer = scale_weights_and_lr(model, optimizer, args)
     
     if args.schedule_lr:
         scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, 
@@ -100,11 +84,10 @@ def main_worker(gpu, ngpus_per_node, args):
     else: 
         scheduler = None
     
-    save_config(args)
     
-    train_model(train_loader, val_loader, val_loader2, model, criterion, optimizer, log_file, args)
+    train_model(train_loader, val_loader, val_loader2, model, criterion, optimizer, args)
     
-def scale_weights_and_lr(model, args):
+def scale_weights_and_lr(model, optimizer, args):
     
     # TODO: scaling the weights of the model manually
     if args.scale_weights:
@@ -291,7 +274,7 @@ def get_model(args):
     return model 
 
 
-def get_training_setup(args):
+def get_training_setup(model, args):
     # define loss function (criterion) and optimizer
     if args.loss in ['cross', 'cross_entropy', 'entropy']:
         criterion = nn.CrossEntropyLoss().cuda(args.gpu)
@@ -328,8 +311,27 @@ def get_training_setup(args):
     return criterion, optimizer
    
 
-def train_model(train_loader, val_loader, val_loader2, model, criterion, optimizer, log_file, args):
+def train_model(train_loader, val_loader, val_loader2, model, criterion, optimizer, args):
 
+    best_acc1 = 0.0
+
+    # optionally resume from a checkpoint
+    if args.resume:
+        if os.path.isfile(args.resume):
+            print("=> loading checkpoint '{}'".format(args.resume))
+            checkpoint = torch.load(args.resume)
+            args.start_epoch = checkpoint['epoch']
+            best_acc1 = checkpoint['best_acc1']
+            if args.gpu is not None:
+                # best_acc1 may be from a checkpoint from a different GPU
+                best_acc1 = best_acc1.to(args.gpu)
+            model.load_state_dict(checkpoint['state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            print("=> loaded checkpoint '{}' (epoch {})"
+                  .format(args.resume, checkpoint['epoch']))
+        else:
+            print("=> no checkpoint found at '{}'".format(args.resume))
+            
 
     if args.evaluate:
         save_config(args)
@@ -343,7 +345,7 @@ def train_model(train_loader, val_loader, val_loader2, model, criterion, optimiz
     if args.compute_jacobian_svd:
         sv, vconv, vfc = get_jacobian_svd(train_loader, model, args, average_batches=args.average_batches)
 
-        svd_file = args.outpath / get_run_name(args) + '_jacobian_svd.npz'
+        svd_file = os.path.join(args.outpath, get_run_name(args) + '_jacobian_svd.npz')
         np.savez(svd_file, sv=sv, vconv=vconv, vfc=vfc)
         save_config(args)
         return
@@ -354,15 +356,17 @@ def train_model(train_loader, val_loader, val_loader2, model, criterion, optimiz
         layer_idx = [i for i, cl in enumerate(model) if 'weight' in dir(cl)]
         cur_weights = get_weights(model, layer_idx)
         if args.track_weights == 'filters':
-            filter_w_file = args.outpath / get_run_name(args) + '_filter_weights.pickle'
+            filter_w_file = os.path.join(args.outpath, get_run_name(args) + '_filter_weights.pickle')
             filter_w_dict = {('layer_'+str(l)): [] for i, l in enumerate(layer_idx) 
                              if cur_weights[i].ndim > 2}
         if args.track_weights == 'norm':
             w_norm_dict = {('layer_'+str(l)): 0 for i, l in enumerate(layer_idx) 
                              if cur_weights[i].ndim > 1}
 
+
+    save_config(args, get_run_name(args))
     train_log = []
-    log_file = args.outpath / get_run_name(args) + '_log.json'
+    log_file = os.path.join(args.outpath, get_run_name(args) + '_log.json')
 
     for epoch in range(args.start_epoch, args.epochs):
         if (epoch < args.decay_max_epochs) and (not args.schedule_lr):
@@ -661,19 +665,19 @@ def accuracy(output, target, topk=(1,), track=False):
 
         res = []
         for k in topk:
-            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
-
+        
 
 def get_run_name(args):
-    run_name = f'lr={args.lr}_{args.lr * args.scale-lr}'
+    run_name = f'lr={args.lr}_{args.lr * args.scale_lr}' if args.scale_lr else f'lr={args.lr}_{args.lr}'
         
     return run_name
     
 
 def get_result_dir():
-    base_dir = "five_layer_results"
+    base_dir = pathlib.Path.cwd() / "five_layer_results"
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)  # (io.get_checkpoint_root())
     

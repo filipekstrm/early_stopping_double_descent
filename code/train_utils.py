@@ -86,13 +86,18 @@ class AverageMeter(object):
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
-    torch.save(state, filename)
-    if is_best:
-        shutil.copyfile(filename, 'model_best.pth.tar')
+
+    if filename is not None:
+
+        torch.save(state, filename)
+        if is_best:
+            shutil.copyfile(filename, 'model_best.pth.tar')
 
 
-def save_config(args):
-    config_file = args.outpath / 'config.json'
+def save_config(args, run_name = ''):
+
+    file_name = run_name + '_config.json'
+    config_file = args.outpath / file_name
     
     config_dict = {k:(str(v) if isinstance(v, pathlib.PosixPath) else v) for k,v in args.__dict__.items()}
     
