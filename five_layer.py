@@ -53,7 +53,7 @@ OUTPUTS_SUMNORMSQUARED_LIST = []
 
 
 # NOTE: I (Amanda) have restructured the code a bit. Hope that I haven't f****d up any important ordering.
-def main_worker(gpu, ngpus_per_node, args):
+def main_worker(gpu, args):
     global best_acc1
     
     args.outpath = get_result_dir()
@@ -884,6 +884,6 @@ if __name__ == "__main__":
         warnings.warn('You have chosen a specific GPU. This will completely '
                     'disable data parallelism.')
 
-    ngpus_per_node = torch.cuda.device_count()
+    #ngpus_per_node = torch.cuda.device_count()
     # Simply call main_worker function
-    main_worker(args.gpu, ngpus_per_node, args)
+    main_worker(args.gpu, args)

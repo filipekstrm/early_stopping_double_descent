@@ -210,6 +210,6 @@ if __name__ == "__main__":
         warnings.warn('You have chosen a specific GPU. This will completely '
                     'disable data parallelism.')
 
-    ngpus_per_node = torch.cuda.device_count()
+    #ngpus_per_node = torch.cuda.device_count()
     # Simply call main_worker function
-    five_layer.main_worker(args.gpu, ngpus_per_node, args)
+    five_layer.main_worker(args.gpu, args)#ngpus_per_node, args)
