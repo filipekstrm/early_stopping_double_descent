@@ -31,4 +31,6 @@ command:
   - --norandomflip
   - --inject-noise
   - 0.2
+  - --lrdecay
+  - 1.0
   - ${args}

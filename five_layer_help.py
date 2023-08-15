@@ -77,7 +77,9 @@ def get_args():
     parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
                         help='learning rate (default: 0.1)')
     parser.add_argument('--decay-rate', '--dr', type=float, default=0.1, metavar='RATE',
-                        help='LR decay rate (default: 0.1)')
+                        help='LR decay rate (default: 0.1)') # TODO: not used?                      
+    parser.add_argument('--lrdecay', '--lrdr', type=float, default=0.1, metavar='RATE',
+                        help='LR decay rate (default: 0.1)') # TODO: not used?                      
     parser.add_argument('--decay-epochs', type=int, default=30, metavar='N',
                         help='epoch interval to decay LR')
     parser.add_argument('--decay-max-epochs', type=int, default=70, metavar='N',
@@ -179,7 +181,7 @@ if __name__ == "__main__":
 
     #current_date = str(datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
     #args.outpath = (pathlib.Path.cwd() / 'results' / args.model / 
-                    os.path.splitext(args.main)[0]) # / current_date)
+    #              os.path.splitext(args.main)[0]) # / current_date)
 
     #if not args.outpath.exists():
     #    args.outpath.mkdir(parents=True)
