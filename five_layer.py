@@ -113,16 +113,19 @@ def scale_weights_and_lr(model, optimizer, args):
 
             opt_lr_dict = get_lr_scales(model, args.lr, scale_dict)
         
-        param_setup = [{'params': cur_lay.parameters(), 'lr': opt_lr_dict[str(i)]} 
+        param_setup = [{'params': cur_lay, 'lr': opt_lr_dict[str(i)]} 
                        if (str(i) in opt_lr_dict)
-                       else {'params': cur_lay.parameters()}
-                       for i, cur_lay in enumerate(model)
-                       if 'weight' in dir(cur_lay)]
+                       else {'params': cur_lay}
+                       for i, cur_lay in enumerate(model.parameters())]
+        #               if 'weight' in dir(cur_lay)]
         args.initial_lr = [{'lr': opt_lr_dict[str(i)]} 
                            if (str(i) in opt_lr_dict)
                            else {'lr': args.lr}
-                           for i, cur_lay in enumerate(model)
-                           if 'weight' in dir(cur_lay)]
+                           for i, cur_lay in enumerate(model.parameters())]
+                          # if 'weight' in dir(cur_lay)]
+                          
+        for p in param_setup:
+            print(p)
         optimizer = torch.optim.SGD(param_setup, args.lr,
                                     momentum=args.momentum,
                                     weight_decay=args.weight_decay)
@@ -675,7 +678,9 @@ def accuracy(output, target, topk=(1,), track=False):
         
 
 def get_run_name(args):
-    run_name = f'lr={args.lr}_{args.lr * args.scale_lr}' if args.scale_lr else f'lr={args.lr}_{args.lr}'
+
+    lr2 = (args.lr * args.scale_lr['17']) if args.scale_lr else args.lr
+    run_name = f'lr={args.lr}_{lr2}'
         
     return run_name
     
