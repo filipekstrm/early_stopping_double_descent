@@ -388,7 +388,8 @@ def train_model(train_loader, val_loader, val_loader2, model, criterion, optimiz
         
         acc1, acc5, test_loss = validate(val_loader, model, criterion, args)
         epoch_log.update({'test': {'acc1': acc1.cpu().numpy().item(), 
-                                   'acc5': acc5.cpu().numpy().item()}})
+                                   'acc5': acc5.cpu().numpy().item(),
+                                   'loss': test_loss}})
         
         if args.sub:
             dum_acc1, dum_acc5, _ = validate(val_loader2, model, criterion, args)
@@ -460,7 +461,7 @@ def train_model(train_loader, val_loader, val_loader2, model, criterion, optimiz
             json.dump(train_log, fn, indent=2)
         
         # remember best acc@1 and save checkpoint
-        is_best = acc1 > best_acc1
+        is_best = acc1 > best_acc1 and (not torch.isnan(acc1)) and (not torch.isinf(acc1))
         best_acc1 = max(acc1, best_acc1)
             
 
@@ -471,6 +472,9 @@ def train_model(train_loader, val_loader, val_loader2, model, criterion, optimiz
             'best_acc1': best_acc1,
             'optimizer' : optimizer.state_dict(),
         }, is_best, filename=(args.outpath if args.secure_checkpoint else None))
+        
+        #if np.isnan(acc1):
+        #    break
 
 
 def compute_bias_variance(net, testloader, args, outputs_sum, outputs_sumnormsquared):
