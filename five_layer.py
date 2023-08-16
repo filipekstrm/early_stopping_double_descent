@@ -689,7 +689,7 @@ def accuracy(output, target, topk=(1,), track=False):
 
 def get_run_name(args):
 
-    lr2 = (args.lr * args.scale_lr['17']) if args.scale_lr else args.lr
+    lr2 = args.scale_lr['17'] if args.scale_lr else args.lr
     run_name = f'lr={args.lr}_{lr2}'
         
     return run_name
