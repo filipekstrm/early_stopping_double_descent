@@ -12,15 +12,29 @@ import torchvision
 class CandidateDataset(Dataset):
     """Candidate dataset."""
     
-    def __init__(self, pathname, transform=None, train=True):
+    def __init__(self, pathname, transform=None, train=True, save_true=False):
         """
         Args:
             pathname (pathlib.Path): Path to the npz file.
             transform (callable, optional): Optional transform to be applied on a sample.
             train (boolean): Extract train (True) or test (False) set from the file.
         """
+        
+        self.save_true = save_true
+
         self.samples, self.targets = np_loader(pathname.resolve(), train=train)
+        
+        if self.save_true:
+            self.true_targets = self.targets.copy()
+            self.return_true = False
+        
         self.transform = transform
+        
+    def set_return_true(return_true):
+    
+        assert self.save_true, "Can not return true targets, as they are not saved"
+        
+        self.return_true = return_true
         
     def __len__(self):
         return len(self.samples)
@@ -33,7 +47,12 @@ class CandidateDataset(Dataset):
         Returns:
             tuple: (sample, target) where target is class_index of the target class.
         """
-        sample, target = self.samples[index], self.targets[index]
+        
+        if self.return_true:
+            sample, target = self.samples[index], self.true_targets[index]
+        else:
+            sample, target = self.samples[index], self.targets[index]
+            
         sample = Image.fromarray(np.moveaxis(sample, 0, -1))
         
         if self.transform is not None:

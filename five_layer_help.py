@@ -133,6 +133,8 @@ def get_args():
     parser.add_argument('--details', type=str, metavar='N', nargs='*',
                         default=['no', 'details', 'given'],
                         help='details about the experimental setup')
+    parser.add_argument('--calc-clean-loss', action='store_true', default=False,
+                        help='whether or not to calculate clean training loss (when noise in data)')
 
     def _parse_args():
         # Do we have a config file to parse?

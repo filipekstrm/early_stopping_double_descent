@@ -163,7 +163,8 @@ def get_data(args):
     
     train_dataset = CandidateDataset(
         main_file,
-        transforms.Compose(train_trans_list)
+        transforms.Compose(train_trans_list),
+        save_true = args.calc_clean_loss
     )
     
     test_dataset = CandidateDataset(test_file, 
@@ -232,6 +233,7 @@ def get_data(args):
             noisy_idx += [i for idx in shuffled_idx[:im_per_class - args.num_classes*num_shuffle]]
             noisy_labels[cur_idx] = np.array(noisy_idx)
         train_dataset.targets = noisy_labels
+        
         
     train_sampler = None
 
@@ -388,6 +390,14 @@ def train_model(train_loader, val_loader, val_loader2, model, criterion, optimiz
         tr_acc1, tr_acc5, _ = validate(train_loader, model, criterion, args)
         epoch_log.update({'train': {'acc1': tr_acc1.cpu().numpy().item(), 
                                     'acc5': tr_acc5.cpu().numpy().item()}})
+        if args.calc_clean_loss and args.inject_noise:
+            train_loader.dataset.set_return_true(True)
+            tr_clean_acc1, tr_clean_acc5, _ = validate(train_loader, model, criterion, args)
+
+            epoch_log.update({'train_clean': {'acc1': tr_acc1.cpu().numpy().item(), 
+                                            'acc5': tr_acc5.cpu().numpy().item()}})
+            train_loader.dataset.set_return_true(False)
+
         
         acc1, acc5, test_loss = validate(val_loader, model, criterion, args)
         epoch_log.update({'test': {'acc1': acc1.cpu().numpy().item(), 
@@ -812,6 +822,8 @@ def get_args():
     parser.add_argument('--details', type=str, metavar='N', nargs='*',
                         default=['no', 'details', 'given'],
                         help='details about the experimental setup')
+    parser.add_argument('--calc-clean-loss', action='store_true', default=False,
+                        help='whether or not to calculate clean training loss (when noise in data)')
 
 
     def _parse_args():
