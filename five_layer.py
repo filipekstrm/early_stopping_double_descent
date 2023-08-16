@@ -394,8 +394,8 @@ def train_model(train_loader, val_loader, val_loader2, model, criterion, optimiz
             train_loader.dataset.set_return_true(True)
             tr_clean_acc1, tr_clean_acc5, _ = validate(train_loader, model, criterion, args)
 
-            epoch_log.update({'train_clean': {'acc1': tr_acc1.cpu().numpy().item(), 
-                                            'acc5': tr_acc5.cpu().numpy().item()}})
+            epoch_log.update({'train_clean': {'acc1': tr_clean_acc1.cpu().numpy().item(), 
+                                            'acc5': tr_clean_acc5.cpu().numpy().item()}})
             train_loader.dataset.set_return_true(False)
 
         
