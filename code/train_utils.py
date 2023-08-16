@@ -21,16 +21,16 @@ class CandidateDataset(Dataset):
         """
         
         self.save_true = save_true
+        self.return_true = False
 
         self.samples, self.targets = np_loader(pathname.resolve(), train=train)
         
         if self.save_true:
             self.true_targets = self.targets.copy()
-            self.return_true = False
         
         self.transform = transform
         
-    def set_return_true(return_true):
+    def set_return_true(self, return_true):
     
         assert self.save_true, "Can not return true targets, as they are not saved"
         
