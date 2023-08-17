@@ -1,8 +1,12 @@
 #!/usr/bin/env python
 # coding: utf-8
+import os
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID";
+ 
+# The GPU id to use, usually either "0" or "1";
+os.environ["CUDA_VISIBLE_DEVICES"]="0";  
 
 # %%
-import os
 import random
 import shutil
 import pathlib
@@ -79,7 +83,7 @@ def get_args():
     parser.add_argument('--decay-rate', '--dr', type=float, default=0.1, metavar='RATE',
                         help='LR decay rate (default: 0.1)') # TODO: not used?                      
     parser.add_argument('--lrdecay', '--lrdr', type=float, default=0.1, metavar='RATE',
-                        help='LR decay rate (default: 0.1)') # TODO: not used?                      
+                        help='LR decay rate (default: 0.1)')                   
     parser.add_argument('--decay-epochs', type=int, default=30, metavar='N',
                         help='epoch interval to decay LR')
     parser.add_argument('--decay-max-epochs', type=int, default=70, metavar='N',
@@ -133,8 +137,8 @@ def get_args():
     parser.add_argument('--details', type=str, metavar='N', nargs='*',
                         default=['no', 'details', 'given'],
                         help='details about the experimental setup')
-    parser.add_argument('--calc-clean-loss', action='store_true', default=False,
-                        help='whether or not to calculate clean training loss (when noise in data)')
+    parser.add_argument('--evaluate-gradients', action='store_true', default=False,
+                        help='whether or not to evaluate and save gradients (for ce loss)')
 
     def _parse_args():
         # Do we have a config file to parse?

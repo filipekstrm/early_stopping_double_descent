@@ -21,7 +21,7 @@ repo_root = os.path.join(os.getcwd(), './code/')
 sys.path.append(repo_root)
 from train_utils import (CandidateDataset, AverageMeter, 
                         save_checkpoint, save_config, 
-                        adjust_learning_rate)
+                        adjust_learning_rate, cross_entropy_split, clear_gradients)
 from proj_utils import get_jacobian_prod, get_jacobian_svd
 
 import torch
@@ -124,8 +124,8 @@ def scale_weights_and_lr(model, optimizer, args):
                            for i, cur_lay in enumerate(model.parameters())]
                           # if 'weight' in dir(cur_lay)]
                           
-        for p in param_setup:
-            print(p)
+#        for p in param_setup:
+#            print(p)
         optimizer = torch.optim.SGD(param_setup, args.lr,
                                     momentum=args.momentum,
                                     weight_decay=args.weight_decay)
@@ -164,7 +164,7 @@ def get_data(args):
     train_dataset = CandidateDataset(
         main_file,
         transforms.Compose(train_trans_list),
-        save_true = args.calc_clean_loss
+        save_true = args.evaluate_gradients
     )
     
     test_dataset = CandidateDataset(test_file, 
@@ -232,8 +232,7 @@ def get_data(args):
                 noisy_idx += [r for idx in shuffled_idx[im_per_class - (r+1)*num_shuffle:im_per_class - r*num_shuffle]]
             noisy_idx += [i for idx in shuffled_idx[:im_per_class - args.num_classes*num_shuffle]]
             noisy_labels[cur_idx] = np.array(noisy_idx)
-        train_dataset.targets = noisy_labels
-        
+        train_dataset.targets = noisy_labels   
         
     train_sampler = None
 
@@ -281,6 +280,7 @@ def get_model(args):
 
 def get_training_setup(model, args):
     # define loss function (criterion) and optimizer
+    
     if args.loss in ['cross', 'cross_entropy', 'entropy']:
         criterion = nn.CrossEntropyLoss().cuda(args.gpu)
     
@@ -390,19 +390,16 @@ def train_model(train_loader, val_loader, val_loader2, model, criterion, optimiz
         tr_acc1, tr_acc5, _ = validate(train_loader, model, criterion, args)
         epoch_log.update({'train': {'acc1': tr_acc1.cpu().numpy().item(), 
                                     'acc5': tr_acc5.cpu().numpy().item()}})
-        if args.calc_clean_loss and args.inject_noise:
-            train_loader.dataset.set_return_true(True)
-            tr_clean_acc1, tr_clean_acc5, _ = validate(train_loader, model, criterion, args)
-
-            epoch_log.update({'train_clean': {'acc1': tr_clean_acc1.cpu().numpy().item(), 
-                                            'acc5': tr_clean_acc5.cpu().numpy().item()}})
-            train_loader.dataset.set_return_true(False)
-
         
         acc1, acc5, test_loss = validate(val_loader, model, criterion, args)
         epoch_log.update({'test': {'acc1': acc1.cpu().numpy().item(), 
                                    'acc5': acc5.cpu().numpy().item(),
                                    'loss': test_loss}})
+                                   
+        if args.evaluate_gradients:
+            grad_dep, grad_ind = compute_gradients(train_loader, model, args) 
+            epoch_log.update({'grads': {'grad_dep': grad_dep, 
+                                        'grad_ind': grad_ind}})
         
         if args.sub:
             dum_acc1, dum_acc5, _ = validate(val_loader2, model, criterion, args)
@@ -665,6 +662,102 @@ def validate(val_loader, model, criterion, args):
 
     return top1.avg, top5.avg, losses.avg
 
+def compute_gradients(val_loader, model, args):
+    # TODO: clean this up
+    
+    model.eval()
+    val_loader.dataset.set_return_true(True) # This will return true targets when fetching items
+    
+    grad_dep, grad_ind = {}, {}
+    for i, (inputs, targets, true_targets) in enumerate(val_loader):
+    
+        if args.gpu is not None:
+            inputs = inputs.cuda(args.gpu, non_blocking=True)
+       
+        targets = targets.cuda(args.gpu, non_blocking=True)
+        true_targets = true_targets.cuda(args.gpu, non_blocking=True)
+
+        # compute output
+        outputs = model(inputs)
+        one_hot_targets = nn.functional.one_hot(targets, args.num_classes)
+        
+        # Split into unpermuted and permuted examples
+        outputs_unperm, targets_unperm = outputs[targets == true_targets, :], one_hot_targets[targets == true_targets, :]
+        outputs_perm, targets_perm = outputs[targets != true_targets, :], one_hot_targets[targets != true_targets, :]
+
+        for j, (key, (outs, targs)) in enumerate(zip(['unperm', 'perm'], [(outputs_unperm, targets_unperm), (outputs_perm, targets_perm)])):
+            if targs.shape[0] > 0:
+            
+                if outs.ndim == 1:
+                    outs = outs.reshape(1, -1)
+                if targs.ndim == 1:
+                    targs = targs.reshape(1, -1)
+            
+                # Calculate loss
+                loss_dep, loss_ind = cross_entropy_split(outs, targs)
+        
+                # Calculate gradients for label dependent part
+                loss_dep.backward(retain_graph=True)
+                
+                # Accumulate gradients
+                grad_dict = {}
+                for k, param in enumerate(model.parameters()):
+                    grad_dict['layer_' + str(k)] = param.grad.detach()
+                
+                if key not in grad_dep:
+                    grad_dep[key] = grad_dict.copy()
+                else:
+                    for key2 in grad_dep[key]:
+                        grad_dep[key][key2] += grad_dict[key2]
+                
+                # Clear gradients
+                clear_gradients(model)
+                
+                # Just a check
+                for param in model.parameters():
+                    assert param.grad is None
+                      
+                # Calculate gradients for label independent part
+                loss_ind.backward(retain_graph=True)
+                
+                # Accumulate gradients
+                grad_dict = {}
+                for k, param in enumerate(model.parameters()):
+                    grad_dict['layer_' + str(k)] = param.grad.detach()
+                
+                if key not in grad_ind:
+                    grad_ind[key] = grad_dict.copy()
+                else:
+                    for key2 in grad_ind[key]:
+                        grad_ind[key][key2] += grad_dict[key2]
+                 
+                # Clear gradients
+                clear_gradients(model)
+                
+                # Just a check
+                for param in model.parameters():
+                    assert param.grad is None
+     
+            del loss_dep, loss_ind
+            
+        del outputs
+    
+    model.train()
+    val_loader.dataset.set_return_true(False)
+    
+    # Compute norms
+    for key in grad_dep:
+        
+        if key == 'unperm':
+            num_samples = (val_loader.dataset.targets == val_loader.dataset.true_targets).sum()
+        elif key == 'perm':
+            num_samples = (val_loader.dataset.targets != val_loader.dataset.true_targets).sum()
+
+        for key2 in grad_dep[key]:
+            grad_dep[key][key2] = torch.norm(grad_dep[key][key2] / num_samples).cpu().numpy().item()
+            grad_ind[key][key2] = torch.norm(grad_ind[key][key2] / num_samples).cpu().numpy().item()
+                
+    return grad_dep, grad_ind
 
 def accuracy(output, target, topk=(1,), track=False):
     """Computes the accuracy over the k top predictions for the specified values of k"""
@@ -768,7 +861,9 @@ def get_args():
     parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
                         help='learning rate (default: 0.1)')
     parser.add_argument('--decay-rate', '--dr', type=float, default=0.1, metavar='RATE',
-                        help='LR decay rate (default: 0.1)')
+                        help='LR decay rate (default: 0.1)') #TODO: not used?
+    parser.add_argument('--lrdecay', '--lrdr', type=float, default=0.1, metavar='RATE',
+                        help='LR decay rate (default: 0.1)')     
     parser.add_argument('--decay-epochs', type=int, default=30, metavar='N',
                         help='epoch interval to decay LR')
     parser.add_argument('--decay-max-epochs', type=int, default=70, metavar='N',
@@ -822,8 +917,8 @@ def get_args():
     parser.add_argument('--details', type=str, metavar='N', nargs='*',
                         default=['no', 'details', 'given'],
                         help='details about the experimental setup')
-    parser.add_argument('--calc-clean-loss', action='store_true', default=False,
-                        help='whether or not to calculate clean training loss (when noise in data)')
+    parser.add_argument('--evaluate-gradients', action='store_true', default=False,
+                        help='whether or not to evaluate and save gradients (for ce loss)')
 
 
     def _parse_args():

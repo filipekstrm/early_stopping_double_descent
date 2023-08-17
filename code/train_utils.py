@@ -18,6 +18,7 @@ class CandidateDataset(Dataset):
             pathname (pathlib.Path): Path to the npz file.
             transform (callable, optional): Optional transform to be applied on a sample.
             train (boolean): Extract train (True) or test (False) set from the file.
+            save_true (boolean): Saving a copy of targets (in case of injected noise).
         """
         
         self.save_true = save_true
@@ -48,10 +49,8 @@ class CandidateDataset(Dataset):
             tuple: (sample, target) where target is class_index of the target class.
         """
         
-        if self.return_true:
-            sample, target = self.samples[index], self.true_targets[index]
-        else:
-            sample, target = self.samples[index], self.targets[index]
+ 
+        sample, target = self.samples[index], self.targets[index]
             
         sample = Image.fromarray(np.moveaxis(sample, 0, -1))
         
@@ -60,7 +59,10 @@ class CandidateDataset(Dataset):
             
         # TODO: Target transform.
         
-        return sample, target
+        if self.return_true:
+            return sample, target, self.true_targets[index]
+        else:
+            return sample, target
     
 def np_loader(filename, train=True):
         #data = np.load(filename)
@@ -122,3 +124,20 @@ def save_config(args, run_name = ''):
     
     with open(config_file, 'w') as fn:
         json.dump(config_dict, fn, indent=2)
+        
+
+def cross_entropy_split(output, target):
+    """ Compute label dependent and label independent parts of cross entropy loss
+    output: Model output.
+    target: Corresponding one-hot (!) target.
+    """
+
+    loss_dep = - (target * output).sum()
+    loss_ind = torch.logsumexp(output, dim=-1).sum()
+    
+    return loss_dep, loss_ind 
+    
+def clear_gradients(model):
+    for param in model.parameters():
+        if param.requires_grad:
+            param.grad = None
