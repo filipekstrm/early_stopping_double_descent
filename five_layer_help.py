@@ -140,6 +140,7 @@ def get_args():
     parser.add_argument('--evaluate-gradients', action='store_true', default=False,
                         help='whether or not to evaluate and save gradients (for ce loss)')
 
+
     def _parse_args():
         # Do we have a config file to parse?
         args_config, remaining = config_parser.parse_known_args()
