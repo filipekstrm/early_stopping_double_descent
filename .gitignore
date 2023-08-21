@@ -39,6 +39,7 @@ plots/
 
 # Amanda's additions
 five_layer_results/
+five_layer_regression_results/
 two_layer_results/
 data/
 environment.yml

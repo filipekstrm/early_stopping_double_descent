@@ -52,7 +52,7 @@ OUTPUTS_SUM_LIST = []
 OUTPUTS_SUMNORMSQUARED_LIST = []
 
 
-# NOTE: I (Amanda) have restructured the code a bit. Hope that I haven't f****d up any important ordering.
+# NOTE: I (Amanda) have restructured the code a bit. Hope that I haven't fucked up any important ordering.
 def main_worker(gpu, args):
     global best_acc1
     
@@ -788,7 +788,7 @@ def accuracy(output, target, topk=(1,), track=False):
         
 
 def get_run_name(args):
-
+    # TODO: make this nicer
     lr2 = args.scale_lr['17'] if args.scale_lr else args.lr
     run_name = f'lr={args.lr}_{lr2}'
     
@@ -805,6 +805,9 @@ def get_run_name(args):
         
     if args.track_weights:
         run_name += '_tw'
+        
+    if args.momentum == 0.0:
+        run_name += "_no_momentum"
         
     return run_name
     

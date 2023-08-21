@@ -40,3 +40,5 @@ def make_cnn(num_planes=64, num_classes=10):
         Flatten(),
         nn.Linear(num_planes*8, num_classes, bias=True)
     )
+
+

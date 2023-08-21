@@ -172,7 +172,10 @@ def get_args():
         if args.layer_names:
             args.model_config.update({'layer_names': args.layer_names})
 
-    args.scale_lr = {'17': args.lr * args.scale_lr} if args.scale_lr else {}
+    if args.model == "2nn"
+        args.scale_lr = {'4': args.lr * args.scale_lr} if args.scale_lr else {}
+    else:
+        args.scale_lr = {'17': args.lr * args.scale_lr} if args.scale_lr else {}
     
     return args
 
