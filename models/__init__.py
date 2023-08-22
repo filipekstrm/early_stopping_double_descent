@@ -1,2 +1,2 @@
 from . import mcnn
-from . import simple_nn
+from . import twonn

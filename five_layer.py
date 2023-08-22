@@ -56,7 +56,7 @@ OUTPUTS_SUMNORMSQUARED_LIST = []
 def main_worker(gpu, args):
     global best_acc1
     
-    args.outpath = get_result_dir()
+    args.outpath = get_result_dir(args.model)
     wandb.init(project="double_descent_five_layer", name=get_run_name(args), config=args)
     
 
@@ -264,7 +264,8 @@ def get_model(args):
     else:
         print("=> creating model '{}'".format(args.model))
         model = model_select.BaseModel.create(args.model, **args.model_config)
-    
+        
+        
     if args.gpu is not None:
         model = model.cuda(args.gpu)
     else:
@@ -356,9 +357,9 @@ def train_model(train_loader, val_loader, val_loader2, model, criterion, optimiz
         return
 
 
-    # TODO: tracking weights of the model
+    # TODO: tracking weights of the model (NOTE: this does not work if model is DataParallel (gpu unspecified)
     if args.track_weights:
-        layer_idx = [i for i, cl in enumerate(model.parameters()) if 'weight' in dir(cl)]
+        layer_idx = [i for i, cl in enumerate(model) if 'weight' in dir(cl)] # model.parameters()
         cur_weights = get_weights(model, layer_idx)
         #if args.track_weights == 'filters':
         #    filter_w_file = os.path.join(args.outpath, get_run_name(args) + '_filter_weights.pickle')
@@ -812,8 +813,14 @@ def get_run_name(args):
     return run_name
     
 
-def get_result_dir():
-    base_dir = pathlib.Path.cwd() / "five_layer_results"
+def get_result_dir(model="mcnn"):
+
+    if model == "2nn":
+        base_dir = pathlib.Path.cwd() / "two_layer_classification_results"
+    else:
+        base_dir = pathlib.Path.cwd() / "five_layer_results"
+        
+    
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)  # (io.get_checkpoint_root())
     
@@ -821,7 +828,7 @@ def get_result_dir():
 
 def get_result_path(args):
     run_name = get_run_name(args)
-    base_dir = get_result_dir()
+    base_dir = get_result_dir(args.model)
     
     result_path = os.path.join(base_dir, run_name + ".csv")
     return result_path
@@ -944,7 +951,6 @@ def get_args():
     parser.add_argument('--evaluate-gradients', action='store_true', default=False,
                         help='whether or not to evaluate and save gradients (for ce loss)')
 
-
     def _parse_args():
         # Do we have a config file to parse?
         args_config, remaining = config_parser.parse_known_args()
@@ -971,11 +977,19 @@ def get_args():
     if args.select_classes:
         args.num_classes = len(args.select_classes)
     if not isinstance(args.model_config, dict):
-        args.model_config = {'num_planes': args.num_planes}
-        args.model_config.update({'num_classes': args.num_classes})
+    
+        if model == "2nn":
+            args.model_config = {'input_size': 32*3*3}
+            args.model_config.update({'hidden_size': 1000})
+            args.model_config.update({'num_classes': args.num_classes})
+        
+        else:
+            args.model_config = {'num_planes': args.num_planes}
+            args.model_config.update({'num_classes': args.num_classes})
         if args.layer_names:
             args.model_config.update({'layer_names': args.layer_names})
 
+        
     args.scale_lr = {'17': args.lr * args.scale_lr} if args.scale_lr else {}
 
 

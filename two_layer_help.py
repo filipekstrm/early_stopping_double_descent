@@ -74,6 +74,8 @@ def get_args():
     parser.add_argument('--details', type=str, metavar='N',
                         default='no_detail_given',
                         help='details about the experimental setup')
+    parser.add_argument('--num-layers', type=int, default=2, 
+                        help='number of model layers (2 or 5)')
 
     args = parser.parse_args(sys.argv[1:])
 
@@ -92,6 +94,7 @@ def get_args():
         np.random.seed(args.seed)
 
     args.device = 'cuda' if (not args.disable_cuda and torch.cuda.is_available()) else 'cpu'
+    print(args.device)
 
     args.lr = [args.first_layer_lr, args.first_layer_lr*args.lr_factor]
 

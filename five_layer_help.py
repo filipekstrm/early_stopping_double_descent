@@ -167,12 +167,19 @@ def get_args():
     if args.select_classes:
         args.num_classes = len(args.select_classes)
     if not isinstance(args.model_config, dict):
-        args.model_config = {'num_planes': args.num_planes}
-        args.model_config.update({'num_classes': args.num_classes})
+    
+        if args.model == "2nn":
+            args.model_config = {'input_size': 32*32*3}
+            args.model_config.update({'hidden_size': 1000})
+            args.model_config.update({'num_classes': args.num_classes})
+        
+        else:
+            args.model_config = {'num_planes': args.num_planes}
+            args.model_config.update({'num_classes': args.num_classes})
         if args.layer_names:
             args.model_config.update({'layer_names': args.layer_names})
 
-    if args.model == "2nn"
+    if args.model == "2nn":
         args.scale_lr = {'4': args.lr * args.scale_lr} if args.scale_lr else {}
     else:
         args.scale_lr = {'17': args.lr * args.scale_lr} if args.scale_lr else {}
