@@ -140,6 +140,7 @@ def get_args():
     parser.add_argument('--evaluate-gradients', action='store_true', default=False,
                         help='whether or not to evaluate and save gradients (for ce loss)')
 
+
     def _parse_args():
         # Do we have a config file to parse?
         args_config, remaining = config_parser.parse_known_args()
@@ -166,12 +167,22 @@ def get_args():
     if args.select_classes:
         args.num_classes = len(args.select_classes)
     if not isinstance(args.model_config, dict):
-        args.model_config = {'num_planes': args.num_planes}
-        args.model_config.update({'num_classes': args.num_classes})
+    
+        if args.model == "2nn":
+            args.model_config = {'input_size': 32*32*3}
+            args.model_config.update({'hidden_size': 1000})
+            args.model_config.update({'num_classes': args.num_classes})
+        
+        else:
+            args.model_config = {'num_planes': args.num_planes}
+            args.model_config.update({'num_classes': args.num_classes})
         if args.layer_names:
             args.model_config.update({'layer_names': args.layer_names})
 
-    args.scale_lr = {'17': args.lr * args.scale_lr} if args.scale_lr else {}
+    if args.model == "2nn":
+        args.scale_lr = {'4': args.lr * args.scale_lr} if args.scale_lr else {}
+    else:
+        args.scale_lr = {'17': args.lr * args.scale_lr} if args.scale_lr else {}
     
     return args
 

@@ -103,8 +103,8 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
     losses = []
     risks = []
     eigenvals = []
-    weights_norm = np.zeros((args.num_layers, int(args.iterations)))
-    grad_norms = np.zeros((args.num_layers, int(args.iterations)))
+    weights_norm = np.zeros((5, int(args.iterations)))
+    grad_norms = np.zeros((5, int(args.iterations)))
     model.train()
     for t in range(int(args.iterations)):
         y_pred = model(Xs)
@@ -124,12 +124,12 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
                     i += 1
                     weights_norm[i, t] = float(torch.norm(param.data.flatten()))
                     grad_norms[i, t] = float(torch.norm(param.grad.flatten()))
-                #param.data -= stepsize[i] * param.grad
-                if i < (args.num_layers - 1):
+                    
+                if i < 4:
                     param.data -= stepsize[0] * param.grad
                 else:
-                    assert i == (args.num_layers - 1), "Something is wrong with the amount of layers"
-                    param.data -= stepsize[1] * param.grad    
+                    assert i == 4, "Something is wrong with the amount of layers"
+                    param.data -= stepsize[1] * param.grad                    
 
         model.eval()
         with torch.no_grad():
@@ -156,41 +156,18 @@ def init_model_params(model, args):
         with torch.no_grad():
             for m in model:
                 if type(m) == torch.nn.Linear:
-                    if i == 0:
+                    if i < 4: #i == 0:
                         torch.nn.init.kaiming_normal_(m.weight, a=math.sqrt(5))
                         m.weight.data = torch.mul(m.weight.data, args.scales[0])
-                        print(m.weight.data.shape, args.scales[0])
-                        
-                    if i == (args.num_layers - 1):
+                    if i == 4: # i == 1
                         torch.nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
                         m.weight.data = torch.mul(m.weight.data, args.scales[1])
-                        print(m.weight.data.shape, args.scales[1])
+                    print(m.weight.data.shape, args.scales[i])
                     i += 1
     return model
 
 
 def get_model(args):
-
-    if args.num_layers == 5:
-        model = five_layer_model(args)
-    else:
-        model = two_layer_model(args)
-    
-    model = init_model_params(model, args)
-    return model
-    
-    
-def two_layer_model(args):
-    model = torch.nn.Sequential(
-        torch.nn.Linear(args.dim, args.hidden, bias=not args.no_bias),
-        torch.nn.BatchNorm1d(args.hidden) if args.batch_norm else torch.nn.Identity(),
-        torch.nn.Identity() if args.linear else torch.nn.ReLU(),
-        torch.nn.Linear(args.hidden, 1, bias=not args.no_bias),
-    ).to(args.device)
-    
-    return model
-    
-def five_layer_model(args):
     model = torch.nn.Sequential(
         torch.nn.Linear(args.dim, args.hidden, bias=not args.no_bias),
         torch.nn.BatchNorm1d(args.hidden) if args.batch_norm else torch.nn.Identity(),
@@ -206,8 +183,9 @@ def five_layer_model(args):
         torch.nn.Identity() if args.linear else torch.nn.ReLU(),
         torch.nn.Linear(int(args.hidden / 2), 1, bias=not args.no_bias),
     ).to(args.device)
-    
+    model = init_model_params(model, args)
     return model
+
 
 def get_dataset(args):
     # sample training set from the linear model
@@ -290,11 +268,7 @@ def get_run_name(args):
 def get_result_path(args):
     run_name = get_run_name(args)
     
-    if args.num_layers == 5:
-        base_dir = "five_layer_regression_results"
-    else:
-        base_dir = "two_layer_results"
-        
+    base_dir = "five_layer_regression_results"
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)  # (io.get_checkpoint_root())
     

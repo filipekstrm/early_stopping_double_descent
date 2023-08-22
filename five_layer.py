@@ -22,7 +22,7 @@ sys.path.append(repo_root)
 from train_utils import (CandidateDataset, AverageMeter, 
                         save_checkpoint, save_config, 
                         adjust_learning_rate, cross_entropy_split, clear_gradients)
-from proj_utils import get_jacobian_prod, get_jacobian_svd
+from proj_utils import get_jacobian_prod, get_jacobian_svd, get_weights
 
 import torch
 import torch.nn as nn
@@ -52,11 +52,11 @@ OUTPUTS_SUM_LIST = []
 OUTPUTS_SUMNORMSQUARED_LIST = []
 
 
-# NOTE: I (Amanda) have restructured the code a bit. Hope that I haven't f****d up any important ordering.
+# NOTE: I (Amanda) have restructured the code a bit. Hope that I haven't fucked up any important ordering.
 def main_worker(gpu, args):
     global best_acc1
     
-    args.outpath = get_result_dir()
+    args.outpath = get_result_dir(args.model)
     wandb.init(project="double_descent_five_layer", name=get_run_name(args), config=args)
     
 
@@ -264,7 +264,8 @@ def get_model(args):
     else:
         print("=> creating model '{}'".format(args.model))
         model = model_select.BaseModel.create(args.model, **args.model_config)
-    
+        
+        
     if args.gpu is not None:
         model = model.cuda(args.gpu)
     else:
@@ -356,17 +357,17 @@ def train_model(train_loader, val_loader, val_loader2, model, criterion, optimiz
         return
 
 
-    # TODO: tracking weights of the model
+    # TODO: tracking weights of the model (NOTE: this does not work if model is DataParallel (gpu unspecified)
     if args.track_weights:
-        layer_idx = [i for i, cl in enumerate(model) if 'weight' in dir(cl)]
+        layer_idx = [i for i, cl in enumerate(model) if 'weight' in dir(cl)] # model.parameters()
         cur_weights = get_weights(model, layer_idx)
-        if args.track_weights == 'filters':
-            filter_w_file = os.path.join(args.outpath, get_run_name(args) + '_filter_weights.pickle')
-            filter_w_dict = {('layer_'+str(l)): [] for i, l in enumerate(layer_idx) 
-                             if cur_weights[i].ndim > 2}
-        if args.track_weights == 'norm':
-            w_norm_dict = {('layer_'+str(l)): 0 for i, l in enumerate(layer_idx) 
-                             if cur_weights[i].ndim > 1}
+        #if args.track_weights == 'filters':
+        #    filter_w_file = os.path.join(args.outpath, get_run_name(args) + '_filter_weights.pickle')
+        #    filter_w_dict = {('layer_'+str(l)): [] for i, l in enumerate(layer_idx) 
+        #                     if cur_weights[i].ndim > 2}
+        #if args.track_weights == 'norm':
+        w_norm_dict = {('layer_'+str(l)): 0 for i, l in enumerate(layer_idx) 
+                         if cur_weights[i].ndim > 1}
 
 
     save_config(args, get_run_name(args))
@@ -438,33 +439,33 @@ def train_model(train_loader, val_loader, val_loader2, model, criterion, optimiz
             w_change_dict = {('layer_'+str(l)): 0 for l in layer_idx}
             new_weights = get_weights(model, layer_idx)
             
-            if args.track_weights == 'norm':
-                for cur_l, cur_w in enumerate(new_weights):
-                    if not (cur_w.ndim > 1):
-                        continue
-                    w_norm_dict['layer_' + str(layer_idx[cur_l])] = np.linalg.norm(cur_w.flatten()).item()
-                epoch_log.update({'w_norm': {k: v for k, v in w_norm_dict.items()}})
+            #if args.track_weights == 'norm':
+            for cur_l, cur_w in enumerate(new_weights):
+                if not (cur_w.ndim > 1):
+                    continue
+                w_norm_dict['layer_' + str(layer_idx[cur_l])] = np.linalg.norm(cur_w.flatten()).item()
+            epoch_log.update({'w_norm': {k: v for k, v in w_norm_dict.items()}})
                 
-            else:
-                for cur_l in range(len(layer_idx)):
-                    cur_change = new_weights[cur_l] - cur_weights[cur_l]
+            #else:
+            #    for cur_l in range(len(layer_idx)):
+            #        cur_change = new_weights[cur_l] - cur_weights[cur_l]
 
-                    if args.track_weights == 'filters':
-                        if cur_change.ndim > 2:
-                            cur_change = np.mean(cur_change, axis=(2,3))
-                            filter_w_dict['layer_' + str(layer_idx[cur_l])].append(np.absolute(cur_change))
+            #        if args.track_weights == 'filters':
+            #            if cur_change.ndim > 2:
+            #                cur_change = np.mean(cur_change, axis=(2,3))
+            #                filter_w_dict['layer_' + str(layer_idx[cur_l])].append(np.absolute(cur_change))
 
-                    chng = np.absolute(np.mean(cur_change))
-                    w_change_dict['layer_' + str(layer_idx[cur_l])] = chng.item()
+            #        chng = np.absolute(np.mean(cur_change))
+            #        w_change_dict['layer_' + str(layer_idx[cur_l])] = chng.item()
 
-                epoch_log.update({'weight_change': {k: v for k, v in w_change_dict.items()}})
+            #    epoch_log.update({'weight_change': {k: v for k, v in w_change_dict.items()}})
 
-                if args.track_weights == 'filters':
-                    with open(filter_w_file, 'wb') as fn:
-                        pickle.dump({k: np.stack(v) for k, v in filter_w_dict.items()}, fn)
+            #    if args.track_weights == 'filters':
+            #        with open(filter_w_file, 'wb') as fn:
+            #            pickle.dump({k: np.stack(v) for k, v in filter_w_dict.items()}, fn)
 
-                cur_weights = [wh for wh in new_weights]
-                new_weight = None
+            #   cur_weights = [wh for wh in new_weights]
+            #    new_weight = None
         
         train_log.append(epoch_log)
         with open(log_file, 'w') as fn:
@@ -662,6 +663,13 @@ def validate(val_loader, model, criterion, args):
 
     return top1.avg, top5.avg, losses.avg
 
+def evaluate_weight_norms(model):
+
+    weight_dict = {}
+    for i, param in enumerate(model.parameters()):
+        print(param.shape)
+        weight_dict["layer_" + str(i)] = torch.norm(param)
+
 def compute_gradients(val_loader, model, args):
     # TODO: clean this up
     
@@ -781,15 +789,38 @@ def accuracy(output, target, topk=(1,), track=False):
         
 
 def get_run_name(args):
-
+    # TODO: make this nicer
     lr2 = args.scale_lr['17'] if args.scale_lr else args.lr
     run_name = f'lr={args.lr}_{lr2}'
+    
+    if not args.norandomflip:
+        run_name += '_r_flip'
+    if not args.norandomcrop:
+        run_name += '_r_crop'
+        
+    if args.weight_decay > 0.0:
+        run_name += f'_wd={args.weight_decay}'
+        
+    if args.lrdecay < 1.0:
+        run_name += f'_ld={args.lrdecay}'
+        
+    if args.track_weights:
+        run_name += '_tw'
+        
+    if args.momentum == 0.0:
+        run_name += "_no_momentum"
         
     return run_name
     
 
-def get_result_dir():
-    base_dir = pathlib.Path.cwd() / "five_layer_results"
+def get_result_dir(model="mcnn"):
+
+    if model == "2nn":
+        base_dir = pathlib.Path.cwd() / "two_layer_classification_results"
+    else:
+        base_dir = pathlib.Path.cwd() / "five_layer_results"
+        
+    
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)  # (io.get_checkpoint_root())
     
@@ -797,7 +828,7 @@ def get_result_dir():
 
 def get_result_path(args):
     run_name = get_run_name(args)
-    base_dir = get_result_dir()
+    base_dir = get_result_dir(args.model)
     
     result_path = os.path.join(base_dir, run_name + ".csv")
     return result_path
@@ -920,7 +951,6 @@ def get_args():
     parser.add_argument('--evaluate-gradients', action='store_true', default=False,
                         help='whether or not to evaluate and save gradients (for ce loss)')
 
-
     def _parse_args():
         # Do we have a config file to parse?
         args_config, remaining = config_parser.parse_known_args()
@@ -947,11 +977,19 @@ def get_args():
     if args.select_classes:
         args.num_classes = len(args.select_classes)
     if not isinstance(args.model_config, dict):
-        args.model_config = {'num_planes': args.num_planes}
-        args.model_config.update({'num_classes': args.num_classes})
+    
+        if model == "2nn":
+            args.model_config = {'input_size': 32*3*3}
+            args.model_config.update({'hidden_size': 1000})
+            args.model_config.update({'num_classes': args.num_classes})
+        
+        else:
+            args.model_config = {'num_planes': args.num_planes}
+            args.model_config.update({'num_classes': args.num_classes})
         if args.layer_names:
             args.model_config.update({'layer_names': args.layer_names})
 
+        
     args.scale_lr = {'17': args.lr * args.scale_lr} if args.scale_lr else {}
 
 
