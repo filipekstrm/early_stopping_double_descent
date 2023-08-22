@@ -39,6 +39,7 @@ plots/
 
 # Amanda's additions (TODO: put these folders in one folder)
 five_layer_results/
+five_layer_regression_results/
 two_layer_results/
 two_layer_classification_results/
 data/
