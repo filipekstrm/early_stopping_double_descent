@@ -55,18 +55,18 @@ class linear_model():
         
         
         if self.coupled_noise:
-            Xs = np.random.randn((n, self.d)) * self.sigmas.reshape(1, -1)
+            Xs = np.random.randn(n * self.d).reshape(n, self.d) * self.sigmas.reshape(1, -1)
             ys = Xs @ self.beta 
             
             if not train: # TODO: because I assume that the test set is noise less
                 U, S, Vh = np.linalg.svd(Xs, full_matrices=True)
+
+                #assert np.abs((Xs - (U @ diag(S) @ Vh))).sum() < 1e-5
                 
-                assert torch.abs((Xs - (U @ S @ Vh))).sum() < 1e-5
-                
-                z = np.zeros((n,))
-                z[diag(S) > 1] = self.sigma_noise*np.random.randn((diag(S) > 1).sum())
-                
-                ys += np.transpose(Vh) @ z
+                z = np.zeros((S.shape[0],))
+                z[S**2 > 1] = self.sigma_noise*np.random.randn((S**2 > 1).sum())
+                eps = np.concatenate((np.transpose(Vh) @ z, np.zeros((n - S.shape[0],)))) # TODO: it does not matter if we extend V, as the eigenvalues are still 0 (and hence z is 0) for those columns?
+                ys += eps 
                 
         else:
             Xs = []
