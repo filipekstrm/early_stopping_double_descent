@@ -59,10 +59,11 @@ class CandidateDataset(Dataset):
             
         # TODO: Target transform.
         
-        if self.return_true:
-            return sample, target, self.true_targets[index]
-        else:
-            return sample, target
+        # TODO: THIS WILL DESTROY GRADIENT EVALUATION
+        #if self.return_true:
+        #    return sample, target, self.true_targets[index]
+        #else:
+        return sample, target
     
 def np_loader(filename, train=True):
         #data = np.load(filename)
