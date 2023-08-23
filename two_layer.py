@@ -211,7 +211,7 @@ def five_layer_model(args):
 
 def get_dataset(args):
     # sample training set from the linear model
-    lin_model = linear_model(args.dim, sigma_noise=0.0, normalized=False, sigmas=args.sigmas, s_range=args.s_range, coupled_noise=args.coupled_noise)
+    lin_model = linear_model(args.dim, sigma_noise=args.sigma_noise, normalized=False, sigmas=args.sigmas, s_range=args.s_range, coupled_noise=args.coupled_noise)
     Xs, ys = lin_model.sample(args.samples, train=True)
     Xs = torch.Tensor(Xs).to(args.device)
     ys = torch.Tensor(ys.reshape((-1, 1))).to(args.device)
