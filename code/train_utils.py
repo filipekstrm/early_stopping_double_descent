@@ -121,7 +121,8 @@ def save_config(args, run_name = ''):
     file_name = run_name + '_config.json'
     config_file = args.outpath / file_name
     
-    config_dict = {k:(str(v) if isinstance(v, pathlib.PosixPath) else v) for k,v in args.__dict__.items()}
+    config_dict = {k:(str(v) if (isinstance(v, pathlib.PosixPath) or isinstance(v, pathlib.WindowsPath)) else v) for
+                   k,v in args.__dict__.items()}    
     
     with open(config_file, 'w') as fn:
         json.dump(config_dict, fn, indent=2)
