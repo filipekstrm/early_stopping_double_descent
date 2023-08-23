@@ -291,9 +291,9 @@ def get_result_path(args):
     run_name = get_run_name(args)
     
     if args.num_layers == 5:
-        base_dir = "five_layer_regression_results"
+        base_dir = "results/five_layer_regression_results"
     else:
-        base_dir = "two_layer_results"
+        base_dir = "results/two_layer_results"
         
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)  # (io.get_checkpoint_root())

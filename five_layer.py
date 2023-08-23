@@ -116,16 +116,16 @@ def scale_weights_and_lr(model, optimizer, args):
         param_setup = [{'params': cur_lay, 'lr': opt_lr_dict[str(i)]} 
                        if (str(i) in opt_lr_dict)
                        else {'params': cur_lay}
-                       for i, cur_lay in enumerate(model.parameters())]
-        #               if 'weight' in dir(cur_lay)]
+                       for i, cur_lay in enumerate(model))] # model.parameters()
+                       if 'weight' in dir(cur_lay)]
         args.initial_lr = [{'lr': opt_lr_dict[str(i)]} 
                            if (str(i) in opt_lr_dict)
                            else {'lr': args.lr}
-                           for i, cur_lay in enumerate(model.parameters())]
-                          # if 'weight' in dir(cur_lay)]
+                           for i, cur_lay in enumerate(model)] # model.parameters()
+                           if 'weight' in dir(cur_lay)]
                           
-#        for p in param_setup:
-#            print(p)
+        for p in param_setup:
+            print(p)
         optimizer = torch.optim.SGD(param_setup, args.lr,
                                     momentum=args.momentum,
                                     weight_decay=args.weight_decay)
@@ -810,15 +810,18 @@ def get_run_name(args):
     if args.momentum == 0.0:
         run_name += "_no_momentum"
         
+    if args.use_inverse_sqrt_lr:
+        run_name += "_inv_sq_lr"
+        
     return run_name
     
 
 def get_result_dir(model="mcnn"):
 
     if model == "2nn":
-        base_dir = pathlib.Path.cwd() / "two_layer_classification_results"
+        base_dir = pathlib.Path.cwd() / "results/two_layer_classification_results"
     else:
-        base_dir = pathlib.Path.cwd() / "five_layer_results"
+        base_dir = pathlib.Path.cwd() / "results/five_layer_results"
         
     
     if not os.path.exists(base_dir):
@@ -950,7 +953,7 @@ def get_args():
                         help='details about the experimental setup')
     parser.add_argument('--evaluate-gradients', action='store_true', default=False,
                         help='whether or not to evaluate and save gradients (for ce loss)')
-
+    use_inverse_sqrt_lr
     def _parse_args():
         # Do we have a config file to parse?
         args_config, remaining = config_parser.parse_known_args()
