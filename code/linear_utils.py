@@ -3,7 +3,7 @@ import numpy as np
 
 
 class linear_model():
-    def __init__(self,d,sigma_noise=0,beta=None,sigmas=None,normalized=True,s_range=[1,10]):
+    def __init__(self,d,sigma_noise=0,beta=None,sigmas=None,normalized=True,s_range=[1,10], coupled_noise=False):
         self.d = d
         if beta is None:
             self.beta = np.random.randn(self.d)
@@ -12,6 +12,7 @@ class linear_model():
             self.beta = beta
         
         self.sigma_noise = sigma_noise
+        self.coupled_noise = coupled_noise
         
         if is_float(sigmas):
             sigmas = float(sigmas)
@@ -24,7 +25,7 @@ class linear_model():
             if normalized:
                 self.sigmas = np.geomspace(s_range[0], s_range[1], d) / np.sqrt(self.d)
             else:
-                self.sigmas = np.geomspace(s_range[0], s_range[1], d)
+                self.sigmas = np.geomspace(s_range[0], s_range[1], d)            
         
         elif sigmas is None:
             if normalized:
@@ -50,15 +51,36 @@ class linear_model():
         # compute risk of a linear estimator based on formula
         return np.linalg.norm( self.beta - hatbeta )**2 + self.sigma_noise**2
     
-    def sample(self,n):
-        Xs = []
-        ys = []
-        for i in range(n):
-            x = np.random.randn(self.d) * self.sigmas
-            y = x @ self.beta + self.sigma_noise*np.random.randn(1)[0]
-            Xs += [x]
-            ys += [y]
-        return np.array(Xs),np.array(ys)
+    def sample(self,n,train=True): 
+        
+        
+        if self.coupled_noise:
+            Xs = np.random.randn((n, self.d)) * self.sigmas.reshape(1, -1)
+            ys = Xs @ self.beta 
+            
+            if not train: # TODO: because I assume that the test set is noise less
+                U, S, Vh = np.linalg.svd(Xs, full_matrices=True)
+                
+                assert torch.abs((Xs - (U @ S @ Vh))).sum() < 1e-5
+                
+                z = np.zeros((n,))
+                z[diag(S) > 1] = self.sigma_noise*np.random.randn((diag(S) > 1).sum())
+                
+                ys += np.transpose(Vh) @ z
+                
+        else:
+            Xs = []
+            ys = []
+        
+            for i in range(n):
+                x = np.random.randn(self.d) * self.sigmas
+                y = x @ self.beta + self.sigma_noise*np.random.randn(1)[0]
+                Xs += [x]
+                ys += [y]
+                
+            Xs, ys = np.array(Xs),np.array(ys)
+        
+        return Xs, ys
         
         
 def is_float(element: any) -> bool:

@@ -51,6 +51,8 @@ def get_args():
                         help='Linear activation function')
     parser.add_argument('--sigmas', type=str, default=None,
                         help='Sigmas')
+    parser.add_argument('--coupled_noise', action='store_true', default=False,
+                        help='Couple noise in output to large eigenvalues.')
     parser.add_argument('-r', '--s-range', nargs='*', type=float,
                         help='Range for sigmas')
     parser.add_argument('-w', '--scales', nargs='*', type=float,

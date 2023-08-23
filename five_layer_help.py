@@ -35,7 +35,6 @@ def get_args():
     config_parser = parser = argparse.ArgumentParser(description='Training Config', add_help=False)
     parser.add_argument('-c', '--config', type=str, default='', metavar='FILE',
                         help='JSON file containing the configuration dictionary')
-
     parser = argparse.ArgumentParser(description='CLI parameters for training')
     parser.add_argument('--root', type=str, default='', metavar='DIR',
                         help='Root directory')

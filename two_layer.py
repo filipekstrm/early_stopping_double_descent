@@ -211,13 +211,13 @@ def five_layer_model(args):
 
 def get_dataset(args):
     # sample training set from the linear model
-    lin_model = linear_model(args.dim, sigma_noise=0.0, normalized=False, sigmas=args.sigmas, s_range=args.s_range)
-    Xs, ys = lin_model.sample(args.samples)
+    lin_model = linear_model(args.dim, sigma_noise=0.0, normalized=False, sigmas=args.sigmas, s_range=args.s_range, coupled_noise=args.coupled_noise)
+    Xs, ys = lin_model.sample(args.samples, train=True)
     Xs = torch.Tensor(Xs).to(args.device)
     ys = torch.Tensor(ys.reshape((-1, 1))).to(args.device)
 
     # sample the set for empirical risk calculation
-    Xt, yt = lin_model.sample(args.samples)
+    Xt, yt = lin_model.sample(args.samples, train=False)
     Xt = torch.Tensor(Xt).to(args.device)
     yt = torch.Tensor(yt.reshape((-1, 1))).to(args.device)
     return Xs, ys, Xt, yt
@@ -283,6 +283,9 @@ def get_run_name(args):
     
     if is_float(args.sigmas):
         run_name += "_uniform_noise"
+        
+    if args.coupled_noise:
+        run_name += "_coupled_noise"
         
     return run_name
 

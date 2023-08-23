@@ -116,12 +116,12 @@ def scale_weights_and_lr(model, optimizer, args):
         param_setup = [{'params': cur_lay, 'lr': opt_lr_dict[str(i)]} 
                        if (str(i) in opt_lr_dict)
                        else {'params': cur_lay}
-                       for i, cur_lay in enumerate(model))] # model.parameters()
+                       for i, cur_lay in enumerate(model) # model.parameters()
                        if 'weight' in dir(cur_lay)]
         args.initial_lr = [{'lr': opt_lr_dict[str(i)]} 
                            if (str(i) in opt_lr_dict)
                            else {'lr': args.lr}
-                           for i, cur_lay in enumerate(model)] # model.parameters()
+                           for i, cur_lay in enumerate(model) # model.parameters()
                            if 'weight' in dir(cur_lay)]
                           
         for p in param_setup:
