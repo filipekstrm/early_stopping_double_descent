@@ -11,6 +11,7 @@ class linear_model():
         else:
             self.beta = beta
         
+
         self.sigma_noise = sigma_noise
         self.coupled_noise = coupled_noise
         
@@ -20,6 +21,11 @@ class linear_model():
                 self.sigmas = np.array([sigmas] * d) / np.sqrt(self.d)
             else:
                 self.sigmas = np.array([sigmas] * d) 
+                
+        elif isinstance(sigmas, list):
+            
+            assert len(sigmas) == d
+            self.sigmas = np.array(sigmas)
         
         elif sigmas in ['geo', 'geometric']:
             if normalized:
@@ -65,7 +71,14 @@ class linear_model():
                 
                 z = np.zeros((S.shape[0],))
                 z[S**2 > 1] = self.sigma_noise*np.random.randn((S**2 > 1).sum())
-                eps = np.concatenate((np.transpose(Vh) @ z, np.zeros((n - S.shape[0],)))) # TODO: it does not matter if we extend V, as the eigenvalues are still 0 (and hence z is 0) for those columns?
+                
+                if self.d < n:
+                    eps = np.concatenate((np.transpose(Vh) @ z, np.zeros((n - S.shape[0],)))) # TODO: it does not matter if we extend V, as the eigenvalues are still 0 (and hence z is 0) for those columns?
+                elif self.d == n:
+                    eps = np.transpose(Vh) @ z
+                else:
+                    eps = (np.transpose(Vh) @ np.concatenate((z, np.zeros((self.d - n,)))))[:n] # TODO: this is probably not how to do it?
+                
                 ys += eps 
                 
         else:

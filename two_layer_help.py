@@ -53,6 +53,8 @@ def get_args():
                         help='Sigmas')
     parser.add_argument('--sigma_noise', type=float, default=0.0,
                         help='Output noise.')
+    parser.add_argument('--beta', nargs='*', type=float, default=None,
+                        help='True model parameters.')
     parser.add_argument('--coupled_noise', action='store_true', default=False,
                         help='Couple noise in output to large eigenvalues.')
     parser.add_argument('-r', '--s-range', nargs='*', type=float,
@@ -79,7 +81,7 @@ def get_args():
                         default='no_detail_given',
                         help='details about the experimental setup')
     parser.add_argument('--num-layers', type=int, default=2, 
-                        help='number of model layers (2 or 5)')
+                        help='number of model layers (1, 2 or 5)')
 
     args = parser.parse_args(sys.argv[1:])
 

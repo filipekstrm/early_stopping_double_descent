@@ -105,6 +105,12 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
     eigenvals = []
     weights_norm = np.zeros((args.num_layers, int(args.iterations)))
     grad_norms = np.zeros((args.num_layers, int(args.iterations)))
+    
+    # Store risk at initialisation as well
+    model.eval()
+    with torch.no_grad():
+        risks.append(risk_fn(model(Xt), yt).item())    
+    
     model.train()
     for t in range(int(args.iterations)):
         y_pred = model(Xs)
@@ -127,9 +133,15 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
                 #param.data -= stepsize[i] * param.grad
                 if i < (args.num_layers - 1):
                     param.data -= stepsize[0] * param.grad
+                    
+                    if t == 0:
+                        print(f'I did pass lr {stepsize[0]}')
                 else:
                     assert i == (args.num_layers - 1), "Something is wrong with the amount of layers"
-                    param.data -= stepsize[1] * param.grad    
+                    param.data -= stepsize[1] * param.grad
+                    
+                    if t == 0:
+                        print(f'Using lr {stepsize[1]}')
 
         model.eval()
         with torch.no_grad():
@@ -144,6 +156,9 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
             evals = sharpness.get_hessian_eigenvalues(model, loss_fn, sharpness.DatasetWrapper(Xs, ys), args)
             eigenvals.append(float(evals[0]))
         model.train()
+        
+    # And store training loss at end
+    losses.append(loss_fn(model(Xs), ys).item())
 
     return {"loss": np.array(losses), "risk": np.array(risks), "weight_norm": weights_norm,
             "eigenvals": np.array(eigenvals), "grad_norm": grad_norms}
@@ -156,12 +171,12 @@ def init_model_params(model, args):
         with torch.no_grad():
             for m in model:
                 if type(m) == torch.nn.Linear:
-                    if i == 0:
+                    if i < (args.num_layers - 1): # NOTE: hade av misstag lika med här innan (i==0), så fem-lager-resultaten hade inte riktigt denna initialisering
                         torch.nn.init.kaiming_normal_(m.weight, a=math.sqrt(5))
                         m.weight.data = torch.mul(m.weight.data, args.scales[0])
                         print(m.weight.data.shape, args.scales[0])
                         
-                    if i == (args.num_layers - 1):
+                    elif i == (args.num_layers - 1): 
                         torch.nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
                         m.weight.data = torch.mul(m.weight.data, args.scales[1])
                         print(m.weight.data.shape, args.scales[1])
@@ -173,12 +188,20 @@ def get_model(args):
 
     if args.num_layers == 5:
         model = five_layer_model(args)
+    elif args.num_layers == 1:
+        model = one_layer_model(args)
     else:
         model = two_layer_model(args)
     
     model = init_model_params(model, args)
     return model
+
+def one_layer_model(args):
+    model = torch.nn.Sequential(
+        torch.nn.Linear(args.dim, 1, bias=not args.no_bias),
+    ).to(args.device)
     
+    return model 
     
 def two_layer_model(args):
     model = torch.nn.Sequential(
@@ -211,7 +234,11 @@ def five_layer_model(args):
 
 def get_dataset(args):
     # sample training set from the linear model
-    lin_model = linear_model(args.dim, sigma_noise=args.sigma_noise, normalized=False, sigmas=args.sigmas, s_range=args.s_range, coupled_noise=args.coupled_noise)
+    
+    if args.beta is not None:
+        args.beta = np.array(args.beta)
+    
+    lin_model = linear_model(args.dim, sigma_noise=args.sigma_noise, beta=args.beta, normalized=False, sigmas=args.sigmas, s_range=args.s_range, coupled_noise=args.coupled_noise)
     Xs, ys = lin_model.sample(args.samples, train=True)
     Xs = torch.Tensor(Xs).to(args.device)
     ys = torch.Tensor(ys.reshape((-1, 1))).to(args.device)
@@ -285,7 +312,16 @@ def get_run_name(args):
         run_name += "_uniform_noise"
         
     if args.coupled_noise:
-        run_name += "_coupled_noise"
+        run_name += f"_coupled_noise"
+        
+    if args.sigma_noise > 0.0:
+        run_name += f"_{args.sigma_noise}"
+        
+    if args.dim != 50:
+        run_name += f"_dim_{args.dim}"
+        
+    if args.samples != 100:
+        run_name += f"_samples_{args.samples}"
         
     return run_name
 
@@ -295,8 +331,13 @@ def get_result_path(args):
     
     if args.num_layers == 5:
         base_dir = "results/five_layer_regression_results"
+    elif args.num_layers == 1:
+        base_dir = "results/one_layer_results"
     else:
         base_dir = "results/two_layer_results"
+        
+    if args.risk_loss == 'L2':
+        base_dir += "_l2"
         
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)  # (io.get_checkpoint_root())
