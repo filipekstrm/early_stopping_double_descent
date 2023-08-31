@@ -106,10 +106,14 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
     weights_norm = np.zeros((args.num_layers, int(args.iterations)))
     grad_norms = np.zeros((args.num_layers, int(args.iterations)))
     
-    # Store risk at initialisation as well
+    # Store risk (and eigenvalues) at initialisation as well
     model.eval()
     with torch.no_grad():
-        risks.append(risk_fn(model(Xt), yt).item())    
+        risks.append(risk_fn(model(Xt), yt).item())
+
+    if args.eigen:
+        evals = sharpness.get_hessian_eigenvalues(model, loss_fn, sharpness.DatasetWrapper(Xs, ys), args)
+        eigenvals.append(float(evals[0]))
     
     model.train()
     for t in range(int(args.iterations)):
@@ -186,11 +190,12 @@ def init_model_params(model, args):
 
 def get_model(args):
 
-    if args.num_layers == 5:
-        model = five_layer_model(args)
-    elif args.num_layers == 1:
-        model = one_layer_model(args)
+    model_dict = {1: one_layer_model, 2: two_layer_model, 5: five_layer_model}
+    
+    if args.num_layers in model_dict:
+        model = model_dict[args.num_layers](args)
     else:
+        print("Model not available, using 2 layer model")
         model = two_layer_model(args)
     
     model = init_model_params(model, args)
@@ -329,11 +334,12 @@ def get_run_name(args):
 def get_result_path(args):
     run_name = get_run_name(args)
     
-    if args.num_layers == 5:
-        base_dir = "results/five_layer_regression_results"
-    elif args.num_layers == 1:
-        base_dir = "results/one_layer_results"
+    dir_dict = {1: "one_layer", 2: "two_layer", 5: "five_layer_regression"}
+    
+    if args.num_layers in dir_dict:
+        base_dir = "results/" + dir_dict[args.num_layers] + "_results"
     else:
+        print("Model not available, assuming two layer model")
         base_dir = "results/two_layer_results"
         
     if args.risk_loss == 'L2':
@@ -346,11 +352,18 @@ def get_result_path(args):
     return result_path
 
 
-def save_results(args, risks, losses=None):
+def save_results(args, risks, losses=None, eigenvals=None):
     result_path = get_result_path(args)
     data = pd.DataFrame(risks)
+    
+    count = 1
     if losses is not None:
-        data[1] = losses
+        data[count] = losses
+        count += 1
+        
+    if eigenvals is not None:
+        data[count] = eigenvals
+        
     data.to_csv(result_path, header=False, index=False)
 
 
@@ -369,8 +382,8 @@ def main(args):
     model = get_model(args)
     print(model)
     out = train_model(model, Xs, ys, Xt, yt, args.lr, args)
-    save_results(args, out["risk"], out["loss"])
-
+    save_results(args, out["risk"], out["loss"], out["eigenvals"])
+    
     if args.plot:  # for debugging
         plot_results_from_file(get_result_path(args), args)
         plot_individual_run(out["risk"], args, "Risk", append_id(get_run_name(args) + ".pdf", "risk"))
