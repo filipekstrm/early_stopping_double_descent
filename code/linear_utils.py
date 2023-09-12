@@ -59,7 +59,6 @@ class linear_model():
     
     def sample(self,n,train=True): 
         
-        
         if self.coupled_noise:
             Xs = np.random.randn(n * self.d).reshape(n, self.d) * self.sigmas.reshape(1, -1)
             ys = Xs @ self.beta 

@@ -106,6 +106,28 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
     weights_norm = np.zeros((args.num_layers, int(args.iterations)))
     grad_norms = np.zeros((args.num_layers, int(args.iterations)))
     
+    if args.num_layers == 1 and args.dim < args.samples and args.no_bias:
+            w_min = np.linalg.solve(np.transpose(Xs)@Xs, np.transpose(Xs)@ys)
+            loss_min = loss_fn(Xs@w_min, ys)
+            print(f"Minimum loss: {loss_min}")
+        
+        
+        
+    if args.num_layers == 1:
+    
+        epoch_fun = train_epoch_one_layer
+    
+        if np.isclose(stepsize[0], stepsize[1], rtol=1e-10):
+            stepsize = stepsize[0]
+        else:
+            stepsize = torch.tensor(([stepsize[0]] * int(np.ceil(args.dim / 2)), [stepsize[1]] * int(np.floor(args.dim / 2)))).reshape(-1)
+            print(stepsize)
+        
+    else:
+        epoch_fun = train_epoch
+        
+    
+       
     # Store risk (and eigenvalues) at initialisation as well
     model.eval()
     with torch.no_grad():
@@ -128,24 +150,7 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
         model.zero_grad()
         loss.backward()
         with torch.no_grad():
-            i = -1
-            for param in model.parameters():
-                if len(param.shape) > 1:
-                    i += 1
-                    weights_norm[i, t] = float(torch.norm(param.data.flatten()))
-                    grad_norms[i, t] = float(torch.norm(param.grad.flatten()))
-                #param.data -= stepsize[i] * param.grad
-                if i < (args.num_layers - 1):
-                    param.data -= stepsize[0] * param.grad
-                    
-                    if t == 0:
-                        print(f'I did pass lr {stepsize[0]}')
-                else:
-                    assert i == (args.num_layers - 1), "Something is wrong with the amount of layers"
-                    param.data -= stepsize[1] * param.grad
-                    
-                    if t == 0:
-                        print(f'Using lr {stepsize[1]}')
+            weights_norm[:, t], grad_norms[:, t] = epoch_fun(model, stepsize, args)
 
         model.eval()
         with torch.no_grad():
@@ -167,6 +172,49 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
     return {"loss": np.array(losses), "risk": np.array(risks), "weight_norm": weights_norm,
             "eigenvals": np.array(eigenvals), "grad_norm": grad_norms}
 
+
+def train_epoch(model, stepsize, args):
+    
+    weights_norm = np.zeros((args.num_layers))
+    grad_norms = np.zeros((args.num_layers))
+    
+    i = -1
+    for param in model.parameters():
+        if len(param.shape) > 1:
+            i += 1
+            weights_norm[i] = float(torch.norm(param.data.flatten()))
+            grad_norms[i] = float(torch.norm(param.grad.flatten()))
+        #param.data -= stepsize[i] * param.grad
+        if i < (args.num_layers - 1):
+            param.data -= stepsize[0] * param.grad
+            print(param.grad)
+            
+            #if t == 0:
+            #    print(f'I did pass lr {stepsize[0]}')
+        else:
+            assert i == (args.num_layers - 1), "Something is wrong with the amount of layers"
+            param.data -= stepsize[1] * param.grad
+            
+            #if t == 0:
+            #    print(f'Using lr {stepsize[1]}')
+                
+    return weights_norm, grad_norms
+
+def train_epoch_one_layer(model, stepsize, args):
+    
+    weights_norm = np.zeros((args.num_layers))
+    grad_norms = np.zeros((args.num_layers))
+    
+    i = -1
+    for param in model.parameters():
+        if len(param.shape) > 1:
+            i += 1
+            weights_norm[i] = float(torch.norm(param.data.flatten()))
+            grad_norms[i] = float(torch.norm(param.grad.flatten()))
+
+        param.data -= stepsize * param.grad
+                
+    return weights_norm, grad_norms
 
 def init_model_params(model, args):
     # use kaiming initialization instead
@@ -249,7 +297,7 @@ def get_dataset(args):
     ys = torch.Tensor(ys.reshape((-1, 1))).to(args.device)
 
     # sample the set for empirical risk calculation
-    Xt, yt = lin_model.sample(args.samples, train=False)
+    Xt, yt = lin_model.sample(args.samples, train=False) # * 1000
     Xt = torch.Tensor(Xt).to(args.device)
     yt = torch.Tensor(yt.reshape((-1, 1))).to(args.device)
     return Xs, ys, Xt, yt
@@ -379,11 +427,17 @@ def plot_results_from_file(result_path, args):
 def main(args):
     wandb.init(project="double_descent", name=get_run_name(args), config=args)
     Xs, ys, Xt, yt = get_dataset(args)
+    
     model = get_model(args)
     print(model)
-    out = train_model(model, Xs, ys, Xt, yt, args.lr, args)
-    save_results(args, out["risk"], out["loss"], out["eigenvals"])
     
+    out = train_model(model, Xs, ys, Xt, yt, args.lr, args)
+    
+    if args.eigen:
+        save_results(args, out["risk"], out["loss"], out["eigenvals"])
+    else:
+        save_results(args, out["risk"], out["loss"])
+
     if args.plot:  # for debugging
         plot_results_from_file(get_result_path(args), args)
         plot_individual_run(out["risk"], args, "Risk", append_id(get_run_name(args) + ".pdf", "risk"))
