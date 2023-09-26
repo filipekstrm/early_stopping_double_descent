@@ -82,6 +82,26 @@ def np_loader(filename, train=True):
     return samples, targets
 
 
+def prune_data(Xs, k):
+    U, S, Vh = np.linalg.svd(Xs, full_matrices=True)
+    
+    if k >= S.shape[0]:
+        return Xs
+    
+    Xs_pruned = torch.tensor(np.dot(U[:, :k] * S[:k], Vh[:k, :]))
+    
+    return Xs_pruned
+    
+    
+def cut_data(Xs, k):
+    
+    Xs_cut = torch.zeroes(Xs.shape)
+    Xs_cut[:, k] = Xs[:, k].copy()
+    
+    return Xs_cut
+    
+
+
 def adjust_learning_rate(optimizer, epoch, args):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     lr = args.lr * (args.lrdecay ** (epoch // 30))
@@ -139,7 +159,9 @@ def cross_entropy_split(output, target):
     
     return loss_dep, loss_ind 
     
+    
 def clear_gradients(model):
     for param in model.parameters():
         if param.requires_grad:
             param.grad = None
+            

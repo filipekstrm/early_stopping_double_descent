@@ -16,7 +16,7 @@ import torch
 import sys
 sys.path.append('code/')
 from linear_utils import linear_model, is_float
-from train_utils import save_config
+from train_utils import save_config, prune_data, cut_data
 
 from sharpness_utilities import sharpness
 
@@ -71,6 +71,8 @@ def get_args():
                         help='Plot the results')
     parser.add_argument('--eigen', action='store_true', default=False,
                         help='Compute eigenvalue')
+    parser.add_argument('--pcs', default=None,
+                        help='Number of PCs to use in data.')
     parser.add_argument('--details', type=str, metavar='N',
                         default='no_detail_given',
                         help='details about the experimental setup')
@@ -96,13 +98,17 @@ def get_args():
     return args
 
 
-def train_model(model, Xs, ys, Xt, yt, stepsize, args):
+def train_model(model, Xs, ys, Xt, yt, stepsize, args, Xs_low=None):
     # define loss functions
+    
     loss_fn = torch.nn.MSELoss(reduction='sum')
     risk_fn = torch.nn.L1Loss(reduction='mean') if args.risk_loss == 'L1' else loss_fn
+    
     losses = []
+    losses_low = []
     risks = []
     eigenvals = []
+    
     weights_norm = np.zeros((args.num_layers, int(args.iterations)))
     grad_norms = np.zeros((args.num_layers, int(args.iterations)))
     
@@ -126,17 +132,19 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
     else:
         epoch_fun = train_epoch
         
-    
        
     # Store risk (and eigenvalues) at initialisation as well
     model.eval()
     with torch.no_grad():
         risks.append(risk_fn(model(Xt), yt).item())
+        
+        if Xs_low is not None:
+            losses_low.append(np.array([loss_fn(model(Xs_l), ys).item() for Xs_l in Xs_low]))
 
     if args.eigen:
         evals = sharpness.get_hessian_eigenvalues(model, loss_fn, sharpness.DatasetWrapper(Xs, ys), args)
         eigenvals.append(float(evals[0]))
-    
+        
     model.train()
     for t in range(int(args.iterations)):
         y_pred = model(Xs)
@@ -149,8 +157,11 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
 
         model.zero_grad()
         loss.backward()
+        
         with torch.no_grad():
             weights_norm[:, t], grad_norms[:, t] = epoch_fun(model, stepsize, args)
+            
+            
 
         model.eval()
         with torch.no_grad():
@@ -161,16 +172,22 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args):
 
             if not t % args.print_freq:
                 print(t, risk.item())
+                
+            if Xs_low is not None:
+                losses_low.append(np.array([loss_fn(model(Xs_l), ys).item() for Xs_l in Xs_low]))
+        
         if args.eigen:
             evals = sharpness.get_hessian_eigenvalues(model, loss_fn, sharpness.DatasetWrapper(Xs, ys), args)
             eigenvals.append(float(evals[0]))
+        
         model.train()
         
     # And store training loss at end
-    losses.append(loss_fn(model(Xs), ys).item())
+    y_pred = model(Xs)
+    losses.append(loss_fn(y_pred, ys).item())
 
     return {"loss": np.array(losses), "risk": np.array(risks), "weight_norm": weights_norm,
-            "eigenvals": np.array(eigenvals), "grad_norm": grad_norms}
+            "eigenvals": np.array(eigenvals), "grad_norm": grad_norms, "losslowrank": np.row_stack(losses_low) if losses_low else losses_low}
 
 
 def train_epoch(model, stepsize, args):
@@ -187,7 +204,6 @@ def train_epoch(model, stepsize, args):
         #param.data -= stepsize[i] * param.grad
         if i < (args.num_layers - 1):
             param.data -= stepsize[0] * param.grad
-            print(param.grad)
             
             #if t == 0:
             #    print(f'I did pass lr {stepsize[0]}')
@@ -291,7 +307,7 @@ def get_dataset(args):
     if args.beta is not None:
         args.beta = np.array(args.beta)
     
-    lin_model = linear_model(args.dim, sigma_noise=args.sigma_noise, beta=args.beta, normalized=False, sigmas=args.sigmas, s_range=args.s_range, coupled_noise=args.coupled_noise)
+    lin_model = linear_model(args.dim, sigma_noise=args.sigma_noise, beta=args.beta, normalized=False, sigmas=args.sigmas, s_range=args.s_range, coupled_noise=args.coupled_noise, transform_data=args.transform_data)
     Xs, ys = lin_model.sample(args.samples, train=True)
     Xs = torch.Tensor(Xs).to(args.device)
     ys = torch.Tensor(ys.reshape((-1, 1))).to(args.device)
@@ -367,14 +383,21 @@ def get_run_name(args):
     if args.coupled_noise:
         run_name += f"_coupled_noise"
         
-    if args.sigma_noise > 0.0:
+    if isinstance(args.sigma_noise, float) and args.sigma_noise > 0.0:
         run_name += f"_{args.sigma_noise}"
+    else:
+        assert len(args.sigma_noise) == 2
+        run_name += f"_{args.sigma_noise[0]}_{args.sigma_noise[1]}"
+
         
     if args.dim != 50:
         run_name += f"_dim_{args.dim}"
         
     if args.samples != 100:
         run_name += f"_samples_{args.samples}"
+        
+    if args.pcs is not None:
+        run_name += f"_pcs_{args.pcs}"
         
     return run_name
 
@@ -390,8 +413,12 @@ def get_result_path(args):
         print("Model not available, assuming two layer model")
         base_dir = "results/two_layer_results"
         
+        
     if args.risk_loss == 'L2':
         base_dir += "_l2"
+        
+    if args.transform_data:
+        base_dir = os.path.join(base_dir, "transform_data")
         
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)  # (io.get_checkpoint_root())
@@ -400,7 +427,7 @@ def get_result_path(args):
     return result_path
 
 
-def save_results(args, risks, losses=None, eigenvals=None):
+def save_results(args, risks, losses=None, additional_data=None):
     result_path = get_result_path(args)
     data = pd.DataFrame(risks)
     
@@ -409,8 +436,14 @@ def save_results(args, risks, losses=None, eigenvals=None):
         data[count] = losses
         count += 1
         
-    if eigenvals is not None:
-        data[count] = eigenvals
+    if additional_data is not None:
+        for d in additional_data:
+            if d.size == 1:
+                d.reshape(-1, 1)
+                
+            for i in range(d.shape[-1]):
+                data[count] = d[:, i]
+                count += 1
         
     data.to_csv(result_path, header=False, index=False)
 
@@ -431,10 +464,25 @@ def main(args):
     model = get_model(args)
     print(model)
     
-    out = train_model(model, Xs, ys, Xt, yt, args.lr, args)
+    if args.pcs is not None:
+        Xs = prune_data(Xs, args.pcs)
+        
+    if args.low_rank_eval:
+        if args.transform_data:
+            Xs_low = [prune_data(Xs, int(i)) for i in np.arange(10, 100, 10)]
+        else: # Sorry this is a bit ugly
+            Xs_low = [cut_data(Xs, int(i)) for i in np.arange(Xs.shape[-1])]
+        
+        out = train_model(model, Xs, ys, Xt, yt, args.lr, args, Xs_low) # TODO: send in Xt_low and add evaluation of loss for Xt_low 
+        
+    else:
+        out = train_model(model, Xs, ys, Xt, yt, args.lr, args) # TODO: send in Xt_low and add evaluation of loss for Xt_low 
+
     
     if args.eigen:
-        save_results(args, out["risk"], out["loss"], out["eigenvals"])
+        save_results(args, out["risk"], out["loss"], [out["eigenvals"]])
+    elif args.low_rank_eval:
+        save_results(args, out["risk"], out["loss"], [out["losslowrank"]])
     else:
         save_results(args, out["risk"], out["loss"])
 

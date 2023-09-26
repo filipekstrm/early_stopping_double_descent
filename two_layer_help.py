@@ -51,7 +51,7 @@ def get_args():
                         help='Linear activation function')
     parser.add_argument('--sigmas', type=str, default=None,
                         help='Sigmas')
-    parser.add_argument('--sigma_noise', type=float, default=0.0,
+    parser.add_argument('--sigma_noise', nargs='*', type=float, default=0.0,
                         help='Output noise.')
     parser.add_argument('--beta', nargs='*', type=float, default=None,
                         help='True model parameters.')
@@ -77,6 +77,12 @@ def get_args():
                         help='Plot the results')
     parser.add_argument('--eigen', action='store_true', default=False,
                         help='Compute eigenvalue')
+    parser.add_argument('--pcs', type=int, default=None, 
+                        help='Number of PCs to use in data.')
+    parser.add_argument('--transform-data', action='store_true', default=False, 
+                        help='Use data in transformed space')
+    parser.add_argument('--low-rank-eval', action='store_true', default=False, 
+                        help='Evaluate performance of low-rank train data.')
     parser.add_argument('--details', type=str, metavar='N',
                         default='no_detail_given',
                         help='details about the experimental setup')

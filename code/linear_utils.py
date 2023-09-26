@@ -3,7 +3,7 @@ import numpy as np
 
 
 class linear_model():
-    def __init__(self,d,sigma_noise=0,beta=None,sigmas=None,normalized=True,s_range=[1,10], coupled_noise=False):
+    def __init__(self,d,sigma_noise=0,beta=None,sigmas=None,normalized=True,s_range=[1,10], coupled_noise=False, transform_data=True):
         self.d = d
         if beta is None:
             self.beta = np.random.randn(self.d)
@@ -14,6 +14,8 @@ class linear_model():
 
         self.sigma_noise = sigma_noise
         self.coupled_noise = coupled_noise
+        self.transform_data = transform_data
+        self.transform_mat = None
         
         if is_float(sigmas):
             sigmas = float(sigmas)
@@ -57,40 +59,64 @@ class linear_model():
         # compute risk of a linear estimator based on formula
         return np.linalg.norm( self.beta - hatbeta )**2 + self.sigma_noise**2
     
-    def sample(self,n,train=True): 
+    def sample(self, n, train=True): 
+    
+        Xs = np.random.randn(n * self.d).reshape(n, self.d) * self.sigmas.reshape(1, -1)
         
+        if self.transform_data:
+            if train:
+                U, S, Vh = np.linalg.svd(Xs, full_matrices=True)
+                self.transform_mat = np.transpose(Vh)
+            else:
+                assert self.transform_mat is not None, "You need to sample training data first for transform to be possible"
+                
+            Xs = Xs @ self.transform_mat
+
         if self.coupled_noise:
-            Xs = np.random.randn(n * self.d).reshape(n, self.d) * self.sigmas.reshape(1, -1)
+        
+            if not isinstance(self.sigma_noise, float):
+                sigma_noise = [self.sigma_noise, 0.0]
+            else:
+                assert len(self.sigma_noise) == 2, "Noise in output should be float, or list of length 2"
+                sigma_noise = self.sigma_noise
+        
             ys = Xs @ self.beta 
             
-            if not train: # TODO: because I assume that the test set is noise less
+            if train: # TODO: because I assume that the test set is noise less <- VÄNTA VA?? NOT TRAIN??
                 U, S, Vh = np.linalg.svd(Xs, full_matrices=True)
 
                 #assert np.abs((Xs - (U @ diag(S) @ Vh))).sum() < 1e-5
                 
                 z = np.zeros((S.shape[0],))
-                z[S**2 > 1] = self.sigma_noise*np.random.randn((S**2 > 1).sum())
-                
+                z[S**2 >= 1] = self.sigma_noise[0]*np.random.randn((S**2 >= 1).sum())
+                z[S**2 < 1] = self.sigma_noise[1]*np.random.randn((S**2 < 1).sum())
+               
                 if self.d < n:
+                    assert np.isclose(sigma_noise[1], 0.0, rtol=1e-10), "Case d < n does not yet handle two noise levels"
+
                     eps = np.concatenate((np.transpose(Vh) @ z, np.zeros((n - S.shape[0],)))) # TODO: it does not matter if we extend V, as the eigenvalues are still 0 (and hence z is 0) for those columns?
                 elif self.d == n:
                     eps = np.transpose(Vh) @ z
                 else:
-                    eps = (np.transpose(Vh) @ np.concatenate((z, np.zeros((self.d - n,)))))[:n] # TODO: this is probably not how to do it?
+                    eps = (np.transpose(Vh) @ np.concatenate((z, self.sigma_noise[1]*np.random.randn(self.d - n))))[:n] # TODO: this is probably not how to do it? Also when considering noise in all dirs?
                 
                 ys += eps 
                 
         else:
-            Xs = []
             ys = []
+            
+           
+            
+            if not isinstance(self.sigma_noise, float):
+                sigma_noise = self.sigma_noise[0]
+            else:
+                sigma_noise = self.sigma_noise
         
             for i in range(n):
-                x = np.random.randn(self.d) * self.sigmas
-                y = x @ self.beta + self.sigma_noise*np.random.randn(1)[0]
-                Xs += [x]
+                y = Xs[i, :] @ self.beta + sigma_noise*np.random.randn(1)[0] # TODO: noise free test data?
                 ys += [y]
                 
-            Xs, ys = np.array(Xs),np.array(ys)
+            ys = np.array(ys)
         
         return Xs, ys
         
