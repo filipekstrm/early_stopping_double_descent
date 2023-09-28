@@ -3,7 +3,7 @@ import numpy as np
 
 
 class linear_model():
-    def __init__(self,d,sigma_noise=0,beta=None,sigmas=None,normalized=True,s_range=[1,10], coupled_noise=False, transform_data=True):
+    def __init__(self,d,sigma_noise=0,beta=None,sigmas=None,normalized=True,s_range=[1,10], coupled_noise=False, transform_data=False):
         self.d = d
         if beta is None:
             self.beta = np.random.randn(self.d)
@@ -82,7 +82,7 @@ class linear_model():
         
             ys = Xs @ self.beta 
             
-            if train: # TODO: because I assume that the test set is noise less <- VÄNTA VA?? NOT TRAIN??
+            if train: # TODO: because I assume that the test set is noise less 
                 U, S, Vh = np.linalg.svd(Xs, full_matrices=True)
 
                 #assert np.abs((Xs - (U @ diag(S) @ Vh))).sum() < 1e-5
@@ -90,22 +90,26 @@ class linear_model():
                 z = np.zeros((S.shape[0],))
                 z[S**2 >= 1] = self.sigma_noise[0]*np.random.randn((S**2 >= 1).sum())
                 z[S**2 < 1] = self.sigma_noise[1]*np.random.randn((S**2 < 1).sum())
-               
+                
+                if self.transform_data:
+                    V = self.transform_mat
+                else:
+                    V = np.transpose(Vh)
+                    
                 if self.d < n:
                     assert np.isclose(sigma_noise[1], 0.0, rtol=1e-10), "Case d < n does not yet handle two noise levels"
 
-                    eps = np.concatenate((np.transpose(Vh) @ z, np.zeros((n - S.shape[0],)))) # TODO: it does not matter if we extend V, as the eigenvalues are still 0 (and hence z is 0) for those columns?
+                    eps = np.concatenate((V @ z, np.zeros((n - S.shape[0],)))) # TODO: it does not matter if we extend V, as the eigenvalues are still 0 (and hence z is 0) for those columns?
                 elif self.d == n:
-                    eps = np.transpose(Vh) @ z
+                    eps = V @ z
                 else:
-                    eps = (np.transpose(Vh) @ np.concatenate((z, self.sigma_noise[1]*np.random.randn(self.d - n))))[:n] # TODO: this is probably not how to do it? Also when considering noise in all dirs?
+                    eps = (V @ np.concatenate((z, self.sigma_noise[1]*np.random.randn(self.d - n))))[:n] # TODO: this is probably not how to do it? Also when considering noise in all dirs?
+                
                 
                 ys += eps 
                 
         else:
             ys = []
-            
-           
             
             if not isinstance(self.sigma_noise, float):
                 sigma_noise = self.sigma_noise[0]

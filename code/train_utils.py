@@ -95,8 +95,8 @@ def prune_data(Xs, k):
     
 def cut_data(Xs, k):
     
-    Xs_cut = torch.zeroes(Xs.shape)
-    Xs_cut[:, k] = Xs[:, k].copy()
+    Xs_cut = torch.zeros(Xs.shape)
+    Xs_cut[:, k] = Xs[:, k].clone()
     
     return Xs_cut
     

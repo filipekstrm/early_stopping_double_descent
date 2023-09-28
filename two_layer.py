@@ -468,10 +468,8 @@ def main(args):
         Xs = prune_data(Xs, args.pcs)
         
     if args.low_rank_eval:
-        if args.transform_data:
-            Xs_low = [prune_data(Xs, int(i)) for i in np.arange(10, 100, 10)]
-        else: # Sorry this is a bit ugly
-            Xs_low = [cut_data(Xs, int(i)) for i in np.arange(Xs.shape[-1])]
+
+        Xs_low = [prune_data(Xs, int(i)) for i in np.arange(10, 100, 10)]
         
         out = train_model(model, Xs, ys, Xt, yt, args.lr, args, Xs_low) # TODO: send in Xt_low and add evaluation of loss for Xt_low 
         
