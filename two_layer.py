@@ -16,7 +16,7 @@ import torch
 import sys
 sys.path.append('code/')
 from linear_utils import linear_model, is_float
-from train_utils import save_config, prune_data, cut_data
+from train_utils import save_config, prune_data, calculate_weight_mse, ScalingLayer
 
 from sharpness_utilities import sharpness
 
@@ -97,10 +97,9 @@ def get_args():
 
     return args
 
-
-def train_model(model, Xs, ys, Xt, yt, stepsize, args, Xs_low=None):
+def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
     # define loss functions
-    
+        
     loss_fn = torch.nn.MSELoss(reduction='sum')
     risk_fn = torch.nn.L1Loss(reduction='mean') if args.risk_loss == 'L1' else loss_fn
     
@@ -108,6 +107,7 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args, Xs_low=None):
     losses_low = []
     risks = []
     eigenvals = []
+    weight_mse = []
     
     weights_norm = np.zeros((args.num_layers, int(args.iterations)))
     grad_norms = np.zeros((args.num_layers, int(args.iterations)))
@@ -116,8 +116,6 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args, Xs_low=None):
             w_min = np.linalg.solve(np.transpose(Xs)@Xs, np.transpose(Xs)@ys)
             loss_min = loss_fn(Xs@w_min, ys)
             print(f"Minimum loss: {loss_min}")
-        
-        
         
     if args.num_layers == 1:
     
@@ -138,8 +136,12 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args, Xs_low=None):
     with torch.no_grad():
         risks.append(risk_fn(model(Xt), yt).item())
         
-        if Xs_low is not None:
+        if args.low_rank_eval:
             losses_low.append(np.array([loss_fn(model(Xs_l), ys).item() for Xs_l in Xs_low]))
+        if args.weight_eval:
+            assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
+            weight_mse.append(calculate_weight_mse(model, true_weights))
+          
 
     if args.eigen:
         evals = sharpness.get_hessian_eigenvalues(model, loss_fn, sharpness.DatasetWrapper(Xs, ys), args)
@@ -160,8 +162,6 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args, Xs_low=None):
         
         with torch.no_grad():
             weights_norm[:, t], grad_norms[:, t] = epoch_fun(model, stepsize, args)
-            
-            
 
         model.eval()
         with torch.no_grad():
@@ -173,8 +173,12 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args, Xs_low=None):
             if not t % args.print_freq:
                 print(t, risk.item())
                 
-            if Xs_low is not None:
+            if args.low_rank_eval:
                 losses_low.append(np.array([loss_fn(model(Xs_l), ys).item() for Xs_l in Xs_low]))
+                
+            if args.weight_eval:
+                assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
+                weight_mse.append(calculate_weight_mse(model, true_weights))
         
         if args.eigen:
             evals = sharpness.get_hessian_eigenvalues(model, loss_fn, sharpness.DatasetWrapper(Xs, ys), args)
@@ -187,7 +191,8 @@ def train_model(model, Xs, ys, Xt, yt, stepsize, args, Xs_low=None):
     losses.append(loss_fn(y_pred, ys).item())
 
     return {"loss": np.array(losses), "risk": np.array(risks), "weight_norm": weights_norm,
-            "eigenvals": np.array(eigenvals), "grad_norm": grad_norms, "losslowrank": np.row_stack(losses_low) if losses_low else losses_low}
+            "eigenvals": np.array(eigenvals), "grad_norm": grad_norms, "losslowrank": np.row_stack(losses_low) if losses_low else np.array(losses_low),
+            "weight_mse": np.row_stack(weight_mse) if weight_mse else np.array(weight_mse)}
 
 
 def train_epoch(model, stepsize, args):
@@ -197,22 +202,26 @@ def train_epoch(model, stepsize, args):
     
     i = -1
     for param in model.parameters():
-        if len(param.shape) > 1:
-            i += 1
-            weights_norm[i] = float(torch.norm(param.data.flatten()))
-            grad_norms[i] = float(torch.norm(param.grad.flatten()))
-        #param.data -= stepsize[i] * param.grad
-        if i < (args.num_layers - 1):
-            param.data -= stepsize[0] * param.grad
+        
+        if param.grad is not None:
+            if len(param.shape) > 1:
+                i += 1
+                weights_norm[i] = float(torch.norm(param.data.flatten()))
+                grad_norms[i] = float(torch.norm(param.grad.flatten()))
+            #param.data -= stepsize[i] * param.grad
             
-            #if t == 0:
-            #    print(f'I did pass lr {stepsize[0]}')
-        else:
-            assert i == (args.num_layers - 1), "Something is wrong with the amount of layers"
-            param.data -= stepsize[1] * param.grad
-            
-            #if t == 0:
-            #    print(f'Using lr {stepsize[1]}')
+            if i < (args.num_layers - 1):
+                param.data -= stepsize[0] * param.grad
+                
+                #if t == 0:
+                #    print(f'I did pass lr {stepsize[0]}')
+            else:
+                assert i == (args.num_layers - 1), "Something is wrong with the amount of layers"
+                                
+                param.data -= stepsize[1] * param.grad
+                
+                #if t == 0:
+                #    print(f'Using lr {stepsize[1]}')
                 
     return weights_norm, grad_norms
 
@@ -249,6 +258,11 @@ def init_model_params(model, args):
                         m.weight.data = torch.mul(m.weight.data, args.scales[1])
                         print(m.weight.data.shape, args.scales[1])
                     i += 1
+                elif type(m) == ScalingLayer:
+                    torch.nn.init.kaiming_normal_(m.inner_weight, a=math.sqrt(5))
+                    m.inner_weight.data = torch.mul(m.inner_weight.data, args.scales[0])
+                    torch.nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
+                    m.weight.data = torch.mul(m.weight.data, args.scales[1])
     return model
 
 
@@ -271,14 +285,22 @@ def one_layer_model(args):
     ).to(args.device)
     
     return model 
+
     
 def two_layer_model(args):
-    model = torch.nn.Sequential(
-        torch.nn.Linear(args.dim, args.hidden, bias=not args.no_bias),
-        torch.nn.BatchNorm1d(args.hidden) if args.batch_norm else torch.nn.Identity(),
-        torch.nn.Identity() if args.linear else torch.nn.ReLU(),
-        torch.nn.Linear(args.hidden, 1, bias=not args.no_bias),
-    ).to(args.device)
+
+    if args.scaling_layer:
+        model = torch.nn.Sequential(
+            ScalingLayer(args.dim, args.hidden)
+            ).to(args.device)
+    
+    else:
+        model = torch.nn.Sequential(
+            torch.nn.Linear(args.dim, args.hidden, bias=not args.no_bias),
+            torch.nn.BatchNorm1d(args.hidden) if args.batch_norm else torch.nn.Identity(),
+            torch.nn.Identity() if args.linear else torch.nn.ReLU(),
+            torch.nn.Linear(args.hidden, 1, bias=not args.no_bias),
+        ).to(args.device)
     
     return model
     
@@ -300,8 +322,22 @@ def five_layer_model(args):
     ).to(args.device)
     
     return model
+    
+def freeze_layer(model, args):
+            
+    assert args.num_layers >= args.freeze_layer, "Layer to be freezed does not exist"
 
-def get_dataset(args):
+    count = 1
+    for param in model.parameters():
+        if len(param.shape) > 1:
+            if count == args.freeze_layer:
+                param.requires_grad = False
+            else:
+                count += 1
+    
+    return model
+
+def get_dataset(args, return_weights=False):
     # sample training set from the linear model
     
     if args.beta is not None:
@@ -316,7 +352,11 @@ def get_dataset(args):
     Xt, yt = lin_model.sample(args.samples, train=False) # * 1000
     Xt = torch.Tensor(Xt).to(args.device)
     yt = torch.Tensor(yt.reshape((-1, 1))).to(args.device)
-    return Xs, ys, Xt, yt
+    
+    if return_weights:
+        return Xs, ys, Xt, yt, lin_model.beta
+    else:
+        return Xs, ys, Xt, yt
 
 
 def plot_results(risks, risks_same, args):
@@ -399,26 +439,35 @@ def get_run_name(args):
     if args.pcs is not None:
         run_name += f"_pcs_{args.pcs}"
         
+    if args.linear:
+        run_name += "_linear"
+        
     return run_name
 
 
 def get_result_path(args):
     run_name = get_run_name(args)
     
-    dir_dict = {1: "one_layer", 2: "two_layer", 5: "five_layer_regression"}
+    layer_dir_dict = {1: "one_layer", 2: "two_layer", 5: "five_layer_regression"}
+    risk_dir_dict = {'L1': "", 'L2': "_l2"}
     
-    if args.num_layers in dir_dict:
-        base_dir = "results/" + dir_dict[args.num_layers] + "_results"
+    if args.num_layers in layer_dir_dict:
+        base_dir = "results/" + layer_dir_dict[args.num_layers] + "_results"
     else:
         print("Model not available, assuming two layer model")
-        base_dir = "results/two_layer_results"
+        args.num_layers = 2
+        base_dir = "results/" + layer_dir_dict[args.num_layers] + "_results"
         
-        
-    if args.risk_loss == 'L2':
-        base_dir += "_l2"
+    base_dir += risk_dir_dict[args.risk_loss]
         
     if args.transform_data:
         base_dir = os.path.join(base_dir, "transform_data")
+        
+    if args.freeze_layer:
+        base_dir = os.path.join(base_dir, "layer_freeze_" + str(args.freeze_layer))
+        
+    if args.scaling_layer:
+        base_dir = os.path.join(base_dir, "scaling_layer")
         
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)  # (io.get_checkpoint_root())
@@ -427,7 +476,7 @@ def get_result_path(args):
     return result_path
 
 
-def save_results(args, risks, losses=None, additional_data=None):
+def save_results(args, risks, losses=None, additional_data=[]):
     result_path = get_result_path(args)
     data = pd.DataFrame(risks)
     
@@ -436,14 +485,17 @@ def save_results(args, risks, losses=None, additional_data=None):
         data[count] = losses
         count += 1
         
-    if additional_data is not None:
+    if additional_data:
         for d in additional_data:
             if d.size == 1:
                 d.reshape(-1, 1)
                 
-            for i in range(d.shape[-1]):
-                data[count] = d[:, i]
-                count += 1
+            #for i in range(d.shape[-1]):
+            #    data[count] = d[:, i]
+            #    count += 1
+            
+            data = pd.concat([data, pd.DataFrame(d, columns=[count + i for i in range(d.shape[-1])])], axis=1)
+            count += d.shape[-1]   
         
     data.to_csv(result_path, header=False, index=False)
 
@@ -459,31 +511,27 @@ def plot_results_from_file(result_path, args):
 
 def main(args):
     wandb.init(project="double_descent", name=get_run_name(args), config=args)
-    Xs, ys, Xt, yt = get_dataset(args)
+    
+    Xs, ys, Xt, yt, ws = get_dataset(args, return_weights=True)
     
     model = get_model(args)
+    
+    if args.freeze_layer:
+        model = freeze_layer(model, args)
     print(model)
     
     if args.pcs is not None:
         Xs = prune_data(Xs, args.pcs)
         
+    Xs_low = None
     if args.low_rank_eval:
-
         Xs_low = [prune_data(Xs, int(i)) for i in np.arange(10, 100, 10)]
-        
-        out = train_model(model, Xs, ys, Xt, yt, args.lr, args, Xs_low) # TODO: send in Xt_low and add evaluation of loss for Xt_low 
-        
-    else:
-        out = train_model(model, Xs, ys, Xt, yt, args.lr, args) # TODO: send in Xt_low and add evaluation of loss for Xt_low 
+           
+    out = train_model(model, Xs, ys, Xt, yt, Xs_low, ws, args.lr, args) 
 
+    additional_data = [out[key] for key in out if (out[key].size != 0 and key not in ["risk", "loss", "weight_norm", "grad_norm"])] 
+    save_results(args, out["risk"], out["loss"], additional_data)
     
-    if args.eigen:
-        save_results(args, out["risk"], out["loss"], [out["eigenvals"]])
-    elif args.low_rank_eval:
-        save_results(args, out["risk"], out["loss"], [out["losslowrank"]])
-    else:
-        save_results(args, out["risk"], out["loss"])
-
     if args.plot:  # for debugging
         plot_results_from_file(get_result_path(args), args)
         plot_individual_run(out["risk"], args, "Risk", append_id(get_run_name(args) + ".pdf", "risk"))

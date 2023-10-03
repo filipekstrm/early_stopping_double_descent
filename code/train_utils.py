@@ -93,14 +93,25 @@ def prune_data(Xs, k):
     return Xs_pruned
     
     
-def cut_data(Xs, k):
-    
-    Xs_cut = torch.zeros(Xs.shape)
-    Xs_cut[:, k] = Xs[:, k].clone()
-    
-    return Xs_cut
-    
+def calculate_weight_mse(model, target):
 
+    output = None
+    for m in model:
+
+        if type(m) == torch.nn.Linear:
+            if output is None:
+                output = m.weight.data.t()
+            else:
+                output = output @ w.weight.data.t()
+        elif type(m) == ScalingLayer:
+            output = m._theta()
+       
+    output = output.numpy().squeeze(axis=-1)
+            
+    assert output.shape == target.shape
+    
+    return (output - target)**2
+    
 
 def adjust_learning_rate(optimizer, epoch, args):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
@@ -125,6 +136,30 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+        
+class ScalingLayer(torch.nn.Module):
+    """ Custom Linear layer but mimics a standard linear layer """
+    def __init__(self, size_in, size_hidden):
+        super().__init__()
+        self.size_in, self.size_out = size_in, 1
+        inner_weight = torch.Tensor(size_in, size_hidden)
+        weight = torch.Tensor(self.size_out, size_in) 
+        self.inner_weight = torch.nn.Parameter(weight)
+        self.weight = torch.nn.Parameter(weight)  
+
+        # initialize weights 
+        torch.nn.init.kaiming_uniform_(self.inner_weight, a=np.sqrt(5)) 
+        fan_in, _ = torch.nn.init._calculate_fan_in_and_fan_out(self.inner_weight)
+        
+        torch.nn.init.kaiming_uniform_(self.weight, a=np.sqrt(5)) 
+        fan_in, _ = torch.nn.init._calculate_fan_in_and_fan_out(self.weight)
+        
+    def _theta(self):
+        return (self.inner_weight * self.weight.sum(dim=-1, keepdims=True)).t()
+
+    def forward(self, x):
+        weight_mat = self._theta()
+        return torch.mm(x, weight_mat)
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):

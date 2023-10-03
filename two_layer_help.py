@@ -83,11 +83,17 @@ def get_args():
                         help='Use data in transformed space')
     parser.add_argument('--low-rank-eval', action='store_true', default=False, 
                         help='Evaluate performance of low-rank train data.')
+    parser.add_argument('--weight-eval', action='store_true', default=False, 
+                        help='Evaluate MSE of weights (linear model).')
     parser.add_argument('--details', type=str, metavar='N',
                         default='no_detail_given',
                         help='details about the experimental setup')
     parser.add_argument('--num-layers', type=int, default=2, 
                         help='number of model layers (1, 2 or 5)')
+    parser.add_argument('--freeze-layer', type=int, default=None, 
+                        help='Freezing model layer.')
+    parser.add_argument('--scaling-layer', action='store_true', default=False,
+                        help='Use ScalingLayer as last layer (for analysis).')
 
     args = parser.parse_args(sys.argv[1:])
 

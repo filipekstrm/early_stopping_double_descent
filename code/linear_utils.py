@@ -91,10 +91,10 @@ class linear_model():
                 z[S**2 >= 1] = self.sigma_noise[0]*np.random.randn((S**2 >= 1).sum())
                 z[S**2 < 1] = self.sigma_noise[1]*np.random.randn((S**2 < 1).sum())
                 
-                if self.transform_data:
-                    V = self.transform_mat
-                else:
-                    V = np.transpose(Vh)
+                #if self.transform_data:
+                #    V = self.transform_mat
+                #else:
+                V = np.transpose(Vh)
                     
                 if self.d < n:
                     assert np.isclose(sigma_noise[1], 0.0, rtol=1e-10), "Case d < n does not yet handle two noise levels"
