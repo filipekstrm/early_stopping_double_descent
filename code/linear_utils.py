@@ -74,12 +74,12 @@ class linear_model():
 
         if self.coupled_noise:
         
-            if not isinstance(self.sigma_noise, float):
+            if isinstance(self.sigma_noise, float):
                 sigma_noise = [self.sigma_noise, 0.0]
             else:
                 assert len(self.sigma_noise) == 2, "Noise in output should be float, or list of length 2"
                 sigma_noise = self.sigma_noise
-        
+                    
             ys = Xs @ self.beta 
             
             if train: # TODO: because I assume that the test set is noise less 
@@ -88,8 +88,8 @@ class linear_model():
                 #assert np.abs((Xs - (U @ diag(S) @ Vh))).sum() < 1e-5
                 
                 z = np.zeros((S.shape[0],))
-                z[S**2 >= 1] = self.sigma_noise[0]*np.random.randn((S**2 >= 1).sum())
-                z[S**2 < 1] = self.sigma_noise[1]*np.random.randn((S**2 < 1).sum())
+                z[S**2 >= 1] = sigma_noise[0]*np.random.randn((S**2 >= 1).sum())
+                z[S**2 < 1] = sigma_noise[1]*np.random.randn((S**2 < 1).sum())
                 
                 #if self.transform_data:
                 #    V = self.transform_mat
@@ -103,24 +103,31 @@ class linear_model():
                 elif self.d == n:
                     eps = V @ z
                 else:
-                    eps = (V @ np.concatenate((z, self.sigma_noise[1]*np.random.randn(self.d - n))))[:n] # TODO: this is probably not how to do it? Also when considering noise in all dirs?
+                    eps = (V @ np.concatenate((z, sigma_noise[1]*np.random.randn(self.d - n))))[:n] # TODO: this is probably not how to do it? Also when considering noise in all dirs?
                 
                 
                 ys += eps 
                 
         else:
-            ys = []
-            
-            if not isinstance(self.sigma_noise, float):
-                sigma_noise = self.sigma_noise[0]
+            if isinstance(self.sigma_noise, float):
+                sigma_noise = [self.sigma_noise, self.sigma_noise]
             else:
                 sigma_noise = self.sigma_noise
-        
+            
+            ys = []
             for i in range(n):
-                y = Xs[i, :] @ self.beta + sigma_noise*np.random.randn(1)[0] # TODO: noise free test data?
+                y = Xs[i, :] @ self.beta #+ sigma_noise*np.random.randn(1)[0] # TODO: noise free test data?
                 ys += [y]
                 
             ys = np.array(ys)
+            
+            # NOTE: I HAVE MADE CHANGES HERE (TEST DATA WAS NOT NOISE FREE BEFORE)
+            # WOULD IT MAKE SENSE TO SET THE LOWER NOISE LEVEL FOR TEST?
+            if train: 
+                split = int(np.ceil(n / 2))
+                eps = np.concatenate([sigma_noise[0]*np.random.randn(split), sigma_noise[1]*np.random.randn(n - split)])
+                np.random.shuffle(eps)
+                ys += eps
         
         return Xs, ys
         
