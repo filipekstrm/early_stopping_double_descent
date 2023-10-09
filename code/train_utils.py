@@ -92,7 +92,7 @@ def prune_data(Xs, k):
     
     return Xs_pruned
     
-    
+
 def calculate_weight_mse(model, target):
 
     output = None
@@ -102,7 +102,7 @@ def calculate_weight_mse(model, target):
             if output is None:
                 output = m.weight.data.t()
             else:
-                output = output @ w.weight.data.t()
+                output = output @ m.weight.data.t()
         elif type(m) == ScalingLayer:
             output = m._theta()
        

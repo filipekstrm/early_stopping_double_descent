@@ -115,6 +115,9 @@ def get_args():
     print(args.device)
 
     args.lr = [args.first_layer_lr, args.first_layer_lr*args.lr_factor]
+    
+    if len(args.sigma_noise) == 1:
+        args.sigma_noise = args.sigma_noise[0]
 
     return args
 
