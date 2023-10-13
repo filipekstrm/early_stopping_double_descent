@@ -72,6 +72,7 @@ class linear_model():
                 
             Xs = Xs @ self.transform_mat
 
+        # TODO: INSER ATT I "WHEN AND HOW..." SÅ MÅSTE DE ANTA X \in R^{DxN} (OCH HÄR HAR VI X \in R^{NxD}). MEN DETTA ÄR OCKSÅ FÖRVIRRANDE; FÖR VILKET RUM TRANSFORMERAR VI DÅ DATAN TILL?
         if self.coupled_noise:
         
             if isinstance(self.sigma_noise, float):
