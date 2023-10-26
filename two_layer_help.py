@@ -85,6 +85,8 @@ def get_args():
                         help='Evaluate performance of low-rank train data.')
     parser.add_argument('--weight-eval', action='store_true', default=False, 
                         help='Evaluate MSE of weights (linear model).')
+    parser.add_argument('--save-weights', action='store_true', default=False, 
+                        help='Save model weights.')
     parser.add_argument('--details', type=str, metavar='N',
                         default='no_detail_given',
                         help='details about the experimental setup')

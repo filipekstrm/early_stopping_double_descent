@@ -16,7 +16,7 @@ import torch
 import sys
 sys.path.append('code/')
 from linear_utils import linear_model, is_float
-from train_utils import save_config, prune_data, calculate_weight_mse, ScalingLayer
+from train_utils import save_config, prune_data, calculate_weight_mse, extract_weights, ScalingLayer
 
 from sharpness_utilities import sharpness
 
@@ -108,6 +108,7 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
     risks = []
     eigenvals = []
     weight_mse = []
+    weights = []
     
     weights_norm = np.zeros((args.num_layers, int(args.iterations)))
     grad_norms = np.zeros((args.num_layers, int(args.iterations)))
@@ -141,6 +142,8 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
         if args.weight_eval:
             assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
             weight_mse.append(calculate_weight_mse(model, true_weights))
+        if args.save_weights:
+            weights.append(extract_weights(model))
           
 
     if args.eigen:
@@ -179,6 +182,10 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
             if args.weight_eval:
                 assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
                 weight_mse.append(calculate_weight_mse(model, true_weights))
+            
+            if args.save_weights:
+                weights.append(extract_weights(model))
+        
         
         if args.eigen:
             evals = sharpness.get_hessian_eigenvalues(model, loss_fn, sharpness.DatasetWrapper(Xs, ys), args)
@@ -192,7 +199,8 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
 
     return {"loss": np.array(losses), "risk": np.array(risks), "weight_norm": weights_norm,
             "eigenvals": np.array(eigenvals), "grad_norm": grad_norms, "losslowrank": np.row_stack(losses_low) if losses_low else np.array(losses_low),
-            "weight_mse": np.row_stack(weight_mse) if weight_mse else np.array(weight_mse)}
+            "weight_mse": np.row_stack(weight_mse) if weight_mse else np.array(weight_mse), 
+            "weights": np.row_stack(weights) if weights else np.array(weights)}
 
 
 def train_epoch(model, stepsize, args):

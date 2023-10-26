@@ -112,6 +112,23 @@ def calculate_weight_mse(model, target):
     
     return (output - target)**2
     
+def extract_weights(model):
+    # Extract all model weights and return as 1D array
+    weights = []
+    
+    for m in model:
+
+        if type(m) == torch.nn.Linear:
+            weights.append(m.weight.data.numpy().reshape(-1))
+            
+            if m.bias:
+                weights.append(m.bias.data.numpy().reshape(-1))
+
+        elif type(m) == ScalingLayer:
+            output = weights.append(m._theta().numpy().reshape(-1))
+
+    return np.array(weights)
+    
 
 def adjust_learning_rate(optimizer, epoch, args):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
