@@ -83,6 +83,8 @@ def get_args():
                         help='Use data in transformed space')
     parser.add_argument('--low-rank-eval', action='store_true', default=False, 
                         help='Evaluate performance of low-rank train data.')
+    parser.add_argument('--ind-eval', action='store_true', default=False, 
+                        help='Evaluate performance of individual training examples.')
     parser.add_argument('--weight-eval', action='store_true', default=False, 
                         help='Evaluate MSE of weights (linear model).')
     parser.add_argument('--save-weights', action='store_true', default=False, 

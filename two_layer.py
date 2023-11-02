@@ -105,6 +105,7 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
     
     losses = []
     losses_low = []
+    losses_ind = []
     risks = []
     eigenvals = []
     weight_mse = []
@@ -139,6 +140,8 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
         
         if args.low_rank_eval:
             losses_low.append(np.array([loss_fn(model(Xs_l), ys).item() for Xs_l in Xs_low]))
+        if args.ind_eval:
+            losses_ind.append(np.array([loss_fn(model(Xt[i, :].reshape(1, -1)), yt[i]).item() for i in range(args.samples)]))
         if args.weight_eval:
             assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
             weight_mse.append(calculate_weight_mse(model, true_weights))
@@ -179,6 +182,9 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
             if args.low_rank_eval:
                 losses_low.append(np.array([loss_fn(model(Xs_l), ys).item() for Xs_l in Xs_low]))
                 
+            if args.ind_eval:
+                losses_ind.append(np.array([loss_fn(model(Xt[i, :].reshape(1, -1)), yt[i]).item() for i in range(args.samples)]))
+
             if args.weight_eval:
                 assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
                 weight_mse.append(calculate_weight_mse(model, true_weights))
@@ -199,6 +205,7 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
 
     return {"loss": np.array(losses), "risk": np.array(risks), "weight_norm": weights_norm,
             "eigenvals": np.array(eigenvals), "grad_norm": grad_norms, "losslowrank": np.row_stack(losses_low) if losses_low else np.array(losses_low),
+            "losses_ind": np.row_stack(losses_ind) if losses_low else np.array(losses_ind),
             "weight_mse": np.row_stack(weight_mse) if weight_mse else np.array(weight_mse), 
             "weights": np.row_stack(weights) if weights else np.array(weights)}
 
@@ -533,7 +540,7 @@ def main(args):
         
     Xs_low = None
     if args.low_rank_eval:
-        Xs_low = [prune_data(Xs, int(i)) for i in np.arange(10, 100, 10)]
+        Xs_low = [prune_data(Xs, int(i)) for i in np.arange(10, args.dim, 10)]
            
     out = train_model(model, Xs, ys, Xt, yt, Xs_low, ws, args.lr, args) 
 
