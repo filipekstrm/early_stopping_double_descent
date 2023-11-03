@@ -141,7 +141,7 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
         if args.low_rank_eval:
             losses_low.append(np.array([loss_fn(model(Xs_l), ys).item() for Xs_l in Xs_low]))
         if args.ind_eval:
-            losses_ind.append(np.array([loss_fn(model(Xt[i, :].reshape(1, -1)), yt[i]).item() for i in range(args.samples)]))
+            losses_ind.append(np.array([loss_fn(model(Xs[i, :].reshape(1, -1)), ys[i]).item() for i in range(args.samples)]))
         if args.weight_eval:
             assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
             weight_mse.append(calculate_weight_mse(model, true_weights))
@@ -183,7 +183,7 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
                 losses_low.append(np.array([loss_fn(model(Xs_l), ys).item() for Xs_l in Xs_low]))
                 
             if args.ind_eval:
-                losses_ind.append(np.array([loss_fn(model(Xt[i, :].reshape(1, -1)), yt[i]).item() for i in range(args.samples)]))
+                losses_ind.append(np.array([loss_fn(model(Xs[i, :].reshape(1, -1)), ys[i]).item() for i in range(args.samples)]))
 
             if args.weight_eval:
                 assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
