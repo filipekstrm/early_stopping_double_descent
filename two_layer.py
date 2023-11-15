@@ -358,7 +358,7 @@ def get_dataset(args, return_weights=False):
     if args.beta is not None:
         args.beta = np.array(args.beta)
     
-    lin_model = linear_model(args.dim, sigma_noise=args.sigma_noise, beta=args.beta, normalized=False, sigmas=args.sigmas, s_range=args.s_range, coupled_noise=args.coupled_noise, transform_data=args.transform_data)
+    lin_model = linear_model(args.dim, sigma_noise=args.sigma_noise, beta=args.beta, normalized=False, sigmas=args.sigmas, s_range=args.s_range, coupled_noise=args.coupled_noise, transform_data=args.transform_data, kappa=args.kappa)
     Xs, ys = lin_model.sample(args.samples, train=True)
     Xs = torch.Tensor(Xs).to(args.device)
     ys = torch.Tensor(ys.reshape((-1, 1))).to(args.device)
@@ -456,6 +456,12 @@ def get_run_name(args):
         
     if args.linear:
         run_name += "_linear"
+        
+    if not args.no_bias: # NOTE: recently added
+        run_name += "_bias"
+        
+    if args.kappa:
+        run_name += "_kappa_" + str(args.kappa)
         
     return run_name
 

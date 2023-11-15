@@ -81,6 +81,8 @@ def get_args():
                         help='Number of PCs to use in data.')
     parser.add_argument('--transform-data', action='store_true', default=False, 
                         help='Use data in transformed space')
+    parser.add_argument('--kappa', type=float, default=None, 
+                        help='Scaling factor for eigenvalues of input.')
     parser.add_argument('--low-rank-eval', action='store_true', default=False, 
                         help='Evaluate performance of low-rank train data.')
     parser.add_argument('--ind-eval', action='store_true', default=False, 
@@ -98,6 +100,7 @@ def get_args():
                         help='Freezing model layer.')
     parser.add_argument('--scaling-layer', action='store_true', default=False,
                         help='Use ScalingLayer as last layer (for analysis).')
+ 
 
     args = parser.parse_args(sys.argv[1:])
 

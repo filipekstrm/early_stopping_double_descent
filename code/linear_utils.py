@@ -3,19 +3,20 @@ import numpy as np
 
 
 class linear_model():
-    def __init__(self,d,sigma_noise=0,beta=None,sigmas=None,normalized=True,s_range=[1,10], coupled_noise=False, transform_data=False):
+    def __init__(self,d,sigma_noise=0,beta=None,sigmas=None,normalized=True,s_range=[1,10], coupled_noise=False, transform_data=False, kappa=None):
         self.d = d
         if beta is None:
             self.beta = np.random.randn(self.d)
             #self.beta = np.ones(self.d)
         else:
             self.beta = beta
+            assert beta.shape[0] == self.d
         
-
         self.sigma_noise = sigma_noise
         self.coupled_noise = coupled_noise
         self.transform_data = transform_data
         self.transform_mat = None
+        self.kappa = kappa
         
         if is_float(sigmas):
             sigmas = float(sigmas)
@@ -63,14 +64,37 @@ class linear_model():
     
         Xs = np.random.randn(n * self.d).reshape(n, self.d) * self.sigmas.reshape(1, -1)
         
-        if self.transform_data:
+        if self.transform_data or self.kappa:
             if train:
                 U, S, Vh = np.linalg.svd(Xs, full_matrices=True)
-                self.transform_mat = np.transpose(Vh)
+                
+                if self.transform_data:
+                    self.transform_mat = np.transpose(Vh)
+                    
+                if self.kappa:
+                    # TODO: to this in a nicer way
+                    if n >= self.d:
+                        S_inv = np.diag(1 / S)
+                    #elif n > self.d:
+                        #S_inv = np.concatenate((np.diag(1 / S), np.zeros((n-self.d, self.d))), axis=0) 
+                    else:
+                        print("Can not yet handle the case d > n")
+                    #    S_inv = np.concatenate((np.diag(1 / S), np.zeros((n, self.d - n))), axis=-1) 
+                    
+                    #Z = Xs @ np.transpose(Vh) @ S_inv
+                    #_, S2, Vh2 = np.linalg.svd(Z, full_matrices=True)
+
+
+                    p = int(np.ceil(self.d/2))  # Number of dimensions with eigenvalue equal to 1
+                    F = np.diag(np.sort(np.concatenate((np.ones((p,)), (np.ones((self.d-p,))) * self.kappa)))[::-1])  # Stretch/squeeze some dims
+                    self.transform_mat = S_inv@F if (self.transform_mat is None) else self.transform_mat@S_inv@F
             else:
                 assert self.transform_mat is not None, "You need to sample training data first for transform to be possible"
                 
             Xs = Xs @ self.transform_mat
+            U, S, Vh = np.linalg.svd(Xs, full_matrices=True)
+            print(S)
+            #print(Vh)
 
         # TODO: INSER ATT I "WHEN AND HOW..." SÅ MÅSTE DE ANTA X \in R^{DxN} (OCH HÄR HAR VI X \in R^{NxD}). MEN DETTA ÄR OCKSÅ FÖRVIRRANDE; FÖR VILKET RUM TRANSFORMERAR VI DÅ DATAN TILL?
         if self.coupled_noise:
