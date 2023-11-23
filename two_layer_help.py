@@ -41,7 +41,7 @@ def get_args():
                         help='Random seed')
     parser.add_argument('-d', '--dim', type=int, default=50, metavar='DIMENSION',
                         help='Feature dimension (default: 50)')
-    parser.add_argument('--hidden', type=int, default=200, metavar='DIMENSION',
+    parser.add_argument('--hidden', type=int, default=50, metavar='DIMENSION',
                         help='Hidden layer dimension (default: 200)')
     parser.add_argument('--batch-norm', action='store_true', default=False,
                         help='Use batch norm')
@@ -65,6 +65,8 @@ def get_args():
                         help='First layer lr')
     parser.add_argument('--lr_factor', type=float, default=1e-4, metavar='LR RATIO',
                         help='Factor with which first layer lr i multiplied to obtain second layer lr')
+    parser.add_argument('--fixed_last_layer_lr', action='store_true', default=False,
+                        help='If true, learning rate of last layer is not relative but fixed to lr_factor.')
     parser.add_argument('--normalized', action='store_true', default=False,
                         help='normalize sample norm across features')
     parser.add_argument('--risk-loss', type=str, default='MSE', metavar='LOSS',
@@ -98,6 +100,8 @@ def get_args():
                         help='number of model layers (1, 2 or 5)')
     parser.add_argument('--freeze-layer', type=int, default=None, 
                         help='Freezing model layer.')
+    parser.add_argument('--fixed-weight-init', action='store_true', default=False, 
+                        help='If initial weights should be set to fixed values, specified by args.scales.')
     parser.add_argument('--scaling-layer', action='store_true', default=False,
                         help='Use ScalingLayer as last layer (for analysis).')
  
@@ -121,7 +125,10 @@ def get_args():
     args.device = 'cuda' if (not args.disable_cuda and torch.cuda.is_available()) else 'cpu'
     print(args.device)
 
-    args.lr = [args.first_layer_lr, args.first_layer_lr*args.lr_factor]
+    if args.fixed_last_layer_lr:
+        args.lr = [args.first_layer_lr, args.lr_factor]
+    else:
+        args.lr = [args.first_layer_lr, args.first_layer_lr*args.lr_factor]
     
     if len(args.sigma_noise) == 1:
         args.sigma_noise = args.sigma_noise[0]

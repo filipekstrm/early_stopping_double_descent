@@ -258,26 +258,46 @@ def train_epoch_one_layer(model, stepsize, args):
 
 def init_model_params(model, args):
     # use kaiming initialization instead
+    
     if args.scales:
-        i = 0
-        with torch.no_grad():
-            for m in model:
-                if type(m) == torch.nn.Linear:
-                    if i < (args.num_layers - 1): # NOTE: hade av misstag lika med här innan (i==0), så fem-lager-resultaten hade inte riktigt denna initialisering
-                        torch.nn.init.kaiming_normal_(m.weight, a=math.sqrt(5))
-                        m.weight.data = torch.mul(m.weight.data, args.scales[0])
-                        print(m.weight.data.shape, args.scales[0])
-                        
-                    elif i == (args.num_layers - 1): 
+
+        if args.fixed_weight_init:
+            i = 0
+            with torch.no_grad():
+                for m in model:
+                    if type(m) == torch.nn.Linear:
+                        if i < (args.num_layers - 1): 
+                            m.weight.data = torch.ones(m.weight.data.shape) * args.scales[0]
+                            print(m.weight.data.shape, args.scales[0])
+                            
+                        elif i == (args.num_layers - 1): 
+                            m.weight.data = torch.ones(m.weight.data.shape) * args.scales[1]
+                            print(m.weight.data.shape, args.scales[1])
+                        i += 1
+                    elif type(m) == ScalingLayer:
+                        m.inner_weight.data = torch.ones(m.inner_weight.data.shape) * args.scales[0]
+                        m.weight.data = torch.ones(m.weight.data.shape) * args.scales[1]
+        
+        else:
+            i = 0
+            with torch.no_grad():
+                for m in model:
+                    if type(m) == torch.nn.Linear:
+                        if i < (args.num_layers - 1): # NOTE: hade av misstag lika med här innan (i==0), så fem-lager-resultaten hade inte riktigt denna initialisering
+                            torch.nn.init.kaiming_normal_(m.weight, a=math.sqrt(5))
+                            m.weight.data = torch.mul(m.weight.data, args.scales[0])
+                            print(m.weight.data.shape, args.scales[0])
+                            
+                        elif i == (args.num_layers - 1): 
+                            torch.nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
+                            m.weight.data = torch.mul(m.weight.data, args.scales[1])
+                            print(m.weight.data.shape, args.scales[1])
+                        i += 1
+                    elif type(m) == ScalingLayer:
+                        torch.nn.init.kaiming_normal_(m.inner_weight, a=math.sqrt(5))
+                        m.inner_weight.data = torch.mul(m.inner_weight.data, args.scales[0])
                         torch.nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
                         m.weight.data = torch.mul(m.weight.data, args.scales[1])
-                        print(m.weight.data.shape, args.scales[1])
-                    i += 1
-                elif type(m) == ScalingLayer:
-                    torch.nn.init.kaiming_normal_(m.inner_weight, a=math.sqrt(5))
-                    m.inner_weight.data = torch.mul(m.inner_weight.data, args.scales[0])
-                    torch.nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
-                    m.weight.data = torch.mul(m.weight.data, args.scales[1])
     return model
 
 
@@ -450,6 +470,9 @@ def get_run_name(args):
         
     if args.samples != 100:
         run_name += f"_samples_{args.samples}"
+        
+    if args.hidden != 50:
+        run_name += f"_hidden_{args.hidden}"
         
     if args.pcs is not None:
         run_name += f"_pcs_{args.pcs}"
