@@ -16,6 +16,7 @@ class linear_model():
         self.coupled_noise = coupled_noise
         self.transform_data = transform_data
         self.transform_mat = None
+        self.right_singular_vecs = None
         self.kappa = kappa
         
         if is_float(sigmas):
@@ -66,13 +67,15 @@ class linear_model():
         
         if self.transform_data or self.kappa:
             if train:
-                self.transform_mat = None
+                U, S, Vh = np.linalg.svd(Xs, full_matrices=True)
+                self.right_singular_vecs = U
+            
+                if self.transform_data:
+                    self.transform_mat = np.transpose(Vh) 
                    
                 if self.kappa:
                     
-                    U, S, Vh = np.linalg.svd(Xs, full_matrices=True)
-                
-                    # TODO: to this in a nicer way
+                    # TODO: do this in a nicer way
                     if n >= self.d:
                         S_inv = np.diag(1 / S)
                     #elif n > self.d:
@@ -87,18 +90,7 @@ class linear_model():
                     p = int(np.ceil(self.d/2))  # Number of dimensions with eigenvalue equal to 1
                     F = np.diag(np.sort(np.concatenate((np.ones((p,)), (np.ones((self.d-p,))) * self.kappa)))[::-1])  # Stretch/squeeze some dims
                     
-                    self.transform_mat = np.transpose(Vh)@S_inv@F@Vh # TODO: detta blev krångligt för det fungerade inte som jag tänkte...
-                    
-                if self.transform_data:
-                    
-                    if self.transform_mat is None:
-                        _, _, Vh = np.linalg.svd(Xs, full_matrices=True)
-                
-                        self.transform_mat = np.transpose(Vh) 
-                    else:
-                        _, _, Vh = np.linalg.svd(Xs@self.transform_mat, full_matrices=True)
-                        
-                        self.transform_mat = self.transform_mat @ np.transpose(Vh) 
+                    self.transform_mat = np.transpose(Vh)@S_inv@F@Vh if self.transform_mat is None else self.transform_mat@S_inv@F 
                     
             else:
                 assert self.transform_mat is not None, "You need to sample training data first for transform to be possible"
