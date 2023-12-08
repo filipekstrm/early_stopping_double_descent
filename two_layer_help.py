@@ -55,6 +55,8 @@ def get_args():
                         help='Output noise.')
     parser.add_argument('--beta', nargs='*', type=float, default=None,
                         help='True model parameters.')
+    parser.add_argument('--scale_beta', action='store_true', default=False,
+                        help='Scaling true parameters with inverse modulation matrix (only if beta is given).')
     parser.add_argument('--coupled_noise', action='store_true', default=False,
                         help='Couple noise in output to large eigenvalues.')
     parser.add_argument('-r', '--s-range', nargs='*', type=float,
@@ -85,6 +87,8 @@ def get_args():
                         help='Use data in transformed space')
     parser.add_argument('--kappa', type=float, default=None, 
                         help='Scaling factor for eigenvalues of input.')
+    parser.add_argument('-p', '--eig_val_frac', type=int, default=None,
+                        help='Fraction of eigenvalues in input equal to 1, if eigenvalues are scaled (d/2 if None) (default: None)')
     parser.add_argument('--low-rank-eval', action='store_true', default=False, 
                         help='Evaluate performance of low-rank train data.')
     parser.add_argument('--ind-eval', action='store_true', default=False, 
@@ -104,6 +108,10 @@ def get_args():
                         help='If initial weights should be set to fixed values, specified by args.scales.')
     parser.add_argument('--scaling-layer', action='store_true', default=False,
                         help='Use ScalingLayer as last layer (for analysis).')
+    parser.add_argument('--theoretical', action='store_true', default=False,
+                        help='Use theoretical model for training (two_layer only).')
+    parser.add_argument('--u', type=float, default=None, 
+                        help='If given, the value of the interaction term in the theoretical two-layer model will be fixed.')
  
 
     args = parser.parse_args(sys.argv[1:])
@@ -132,7 +140,7 @@ def get_args():
     
     if len(args.sigma_noise) == 1:
         args.sigma_noise = args.sigma_noise[0]
-
+        
     return args
 
 if __name__ == "__main__":

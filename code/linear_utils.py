@@ -1,9 +1,10 @@
 import numpy as np
+from scipy.stats import ortho_group
 
 
 
 class linear_model():
-    def __init__(self,d,sigma_noise=0,beta=None,sigmas=None,normalized=True,s_range=[1,10], coupled_noise=False, transform_data=False, kappa=None):
+    def __init__(self, d, sigma_noise=0, beta=None, scale_beta=False, normalized=True, sigmas=None, s_range=[1,10], coupled_noise=False, transform_data=False, kappa=None, p=None, cont_eigs=False, masked_input=False):
         self.d = d
         if beta is None:
             self.beta = np.random.randn(self.d)
@@ -11,14 +12,23 @@ class linear_model():
         else:
             self.beta = beta
             assert beta.shape[0] == self.d
-        
+            
+      
         self.sigma_noise = sigma_noise
         self.coupled_noise = coupled_noise
         self.transform_data = transform_data
         self.transform_mat = None
         self.right_singular_vecs = None
         self.kappa = kappa
-        
+        self.p = p if p is not None else int(np.ceil(self.d/2))
+        self.cont_eigs = cont_eigs
+        self.masked_input = masked_input
+
+        if kappa is not None and scale_beta:
+            F = self.modulation_matrix()
+            self.beta = np.linalg.inv(F)@self.beta
+       
+
         if is_float(sigmas):
             sigmas = float(sigmas)
             if normalized:
@@ -87,9 +97,14 @@ class linear_model():
                     #Z = Xs @ np.transpose(Vh) @ S_inv
                     #_, S2, Vh2 = np.linalg.svd(Z, full_matrices=True)
                     
-                    p = int(np.ceil(self.d/2))  # Number of dimensions with eigenvalue equal to 1
-                    F = np.diag(np.sort(np.concatenate((np.ones((p,)), (np.ones((self.d-p,))) * self.kappa)))[::-1])  # Stretch/squeeze some dims
-                    
+                    #if self.cont_eigs:
+                        #F = np.diag(np.sort(np.geomspace(1.0, self.kappa, num=self.d))[::-1])
+                    #    F = np.diag(np.sort(np.linspace(1.0, self.kappa, num=self.d))[::-1])
+                    #else:
+                       # Number of dimensions with eigenvalue equal to 1
+                    F = self.modulation_matrix() #np.diag(np.sort(np.concatenate((np.ones((self.p,)), (np.ones((self.d-self.p,))) * self.kappa)))[::-1])  # Stretch/squeeze some dims
+                   
+                        
                     self.transform_mat = np.transpose(Vh)@S_inv@F@Vh if self.transform_mat is None else self.transform_mat@S_inv@F 
                     
             else:
@@ -138,6 +153,12 @@ class linear_model():
                 ys += eps 
                 
         else:
+            
+            if self.masked_input:
+                Xs_t = Xs @ np.linalg.inv(self.transform_mat)
+            else:
+                Xs_t = Xs
+        
             if isinstance(self.sigma_noise, float):
                 sigma_noise = [self.sigma_noise, self.sigma_noise]
             else:
@@ -145,7 +166,7 @@ class linear_model():
             
             ys = []
             for i in range(n):
-                y = Xs[i, :] @ self.beta #+ sigma_noise*np.random.randn(1)[0] # TODO: noise free test data?
+                y = Xs_t[i, :] @ self.beta #+ sigma_noise*np.random.randn(1)[0] # TODO: noise free test data?
                 ys += [y]
                 
             ys = np.array(ys)
@@ -160,7 +181,29 @@ class linear_model():
         
         return Xs, ys
         
+    def modulation_matrix(self):
+        return np.diag(get_modulation_matrix(self.d, self.p, self.kappa, diag_sorted=True, cont_eigs=self.cont_eigs)[::-1])
         
+ 
+def get_modulation_matrix(d, p, k, diag_sorted=False, cont_eigs=False):
+    
+    if cont_eigs:
+        S = np.diag(np.linspace(1.0, k, num=d))
+    else:
+        S = np.eye(d)
+        S[:p, :p] *= 1
+        S[p:, p:] *= k
+    
+    if diag_sorted:  # Make diagonal matrix with sorted diagonal
+        F = np.sort(np.diag(S)) 
+    else:
+        U = ortho_group.rvs(d)
+        VT = ortho_group.rvs(d)
+        F = np.dot(U, np.dot(S, VT))
+    
+    return F
+
+ 
 def is_float(element: any) -> bool:
 
     if element is None: 

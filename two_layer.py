@@ -17,6 +17,7 @@ import sys
 sys.path.append('code/')
 from linear_utils import linear_model, is_float
 from train_utils import save_config, prune_data, calculate_weight_mse, extract_weights, ScalingLayer
+from theoretical_model import linear_two_layer_simulation
 
 from sharpness_utilities import sharpness
 
@@ -126,6 +127,7 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
         if np.isclose(stepsize[0], stepsize[1], rtol=1e-10):
             stepsize = stepsize[0]
         else:
+            # TODO: Use p here?
             stepsize = torch.tensor(([stepsize[0]] * int(np.ceil(args.dim / 2)), [stepsize[1]] * int(np.floor(args.dim / 2)))).reshape(-1)
             print(stepsize)
         
@@ -199,7 +201,7 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
         
         model.train()
         
-    # And store training loss at end
+    
     y_pred = model(Xs)
     losses.append(loss_fn(y_pred, ys).item())
 
@@ -304,7 +306,7 @@ def init_model_params(model, args):
 def get_model(args):
 
     model_dict = {1: one_layer_model, 2: two_layer_model, 5: five_layer_model}
-    
+        
     if args.num_layers in model_dict:
         model = model_dict[args.num_layers](args)
     else:
@@ -372,13 +374,18 @@ def freeze_layer(model, args):
     
     return model
 
-def get_dataset(args, return_weights=False):
+def get_dataset(args, return_extra=False):
     # sample training set from the linear model
     
     if args.beta is not None:
-        args.beta = np.array(args.beta)
-    
-    lin_model = linear_model(args.dim, sigma_noise=args.sigma_noise, beta=args.beta, normalized=False, sigmas=args.sigmas, s_range=args.s_range, coupled_noise=args.coupled_noise, transform_data=args.transform_data, kappa=args.kappa)
+        args.beta = np.array(args.beta)           
+        
+    if args.eig_val_frac is None:
+        p = None
+    else:
+        p = args.eig_val_frac*args.dim
+  
+    lin_model = linear_model(args.dim, sigma_noise=args.sigma_noise, beta=args.beta, scale_beta=args.scale_beta, normalized=False, sigmas=args.sigmas, s_range=args.s_range, coupled_noise=args.coupled_noise, transform_data=args.transform_data, kappa=args.kappa, p=p)
     Xs, ys = lin_model.sample(args.samples, train=True)
     Xs = torch.Tensor(Xs).to(args.device)
     ys = torch.Tensor(ys.reshape((-1, 1))).to(args.device)
@@ -388,8 +395,8 @@ def get_dataset(args, return_weights=False):
     Xt = torch.Tensor(Xt).to(args.device)
     yt = torch.Tensor(yt.reshape((-1, 1))).to(args.device)
     
-    if return_weights:
-        return Xs, ys, Xt, yt, lin_model.beta
+    if return_extra:
+        return Xs, ys, Xt, yt, lin_model.right_singular_vecs, lin_model.beta
     else:
         return Xs, ys, Xt, yt
 
@@ -484,7 +491,13 @@ def get_run_name(args):
         run_name += "_bias"
         
     if args.kappa:
-        run_name += "_kappa_" + str(args.kappa)
+        run_name += f"_kappa_{args.kappa}"
+        
+    if args.scales[0] != 1.0 or args.scales[1] != 1.0:
+        run_name += f"_w_{args.scales[0]}_{args.scales[1]}" 
+        
+    if args.u is not None and args.theoretical:
+        run_name += f"_fixed_u_{args.u}"
         
     return run_name
 
@@ -512,6 +525,9 @@ def get_result_path(args):
         
     if args.scaling_layer:
         base_dir = os.path.join(base_dir, "scaling_layer")
+        
+    if args.theoretical:
+        base_dir = os.path.join(base_dir, "theoretical")
         
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)  # (io.get_checkpoint_root())
@@ -556,22 +572,29 @@ def plot_results_from_file(result_path, args):
 def main(args):
     wandb.init(project="double_descent", name=get_run_name(args), config=args)
     
-    Xs, ys, Xt, yt, ws = get_dataset(args, return_weights=True)
-    
-    model = get_model(args)
-    
-    if args.freeze_layer:
-        model = freeze_layer(model, args)
-    print(model)
+    Xs, ys, Xt, yt, U, ws = get_dataset(args, return_extra=True)
     
     if args.pcs is not None:
         Xs = prune_data(Xs, args.pcs)
-        
+            
     Xs_low = None
     if args.low_rank_eval:
         Xs_low = [prune_data(Xs, int(i)) for i in np.arange(10, args.dim, 10)]
-           
-    out = train_model(model, Xs, ys, Xt, yt, Xs_low, ws, args.lr, args) 
+
+    if args.theoretical:
+        assert args.num_layers == 2 and args.linear, "Theoretical simulation only for linear two layer model"
+                
+        out = linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, args.lr, args)
+        
+    else:
+    
+        model = get_model(args)
+        
+        if args.freeze_layer:
+            model = freeze_layer(model, args)
+        print(model)
+               
+        out = train_model(model, Xs, ys, Xt, yt, Xs_low, ws, args.lr, args) 
 
     additional_data = [out[key] for key in out if (out[key].size != 0 and key not in ["risk", "loss", "weight_norm", "grad_norm"])] 
     save_results(args, out["risk"], out["loss"], additional_data)

@@ -40,3 +40,4 @@ plots/
 # Amanda's additions 
 data/
 environment.yml
+*.sh
