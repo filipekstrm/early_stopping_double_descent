@@ -93,7 +93,7 @@ def prune_data(Xs, k):
     return Xs_pruned
     
 
-def calculate_weight_mse(model, target):
+def calculate_weight_mse(model, target, p=None):
 
     output = None
     for m in model:
@@ -110,7 +110,12 @@ def calculate_weight_mse(model, target):
             
     assert output.shape == target.shape
     
-    return (output - target)**2
+    mse = (output - target)**2
+    
+    if p is not None:
+        mse = np.array((mse[:p].mean(), mse[p:].mean()))
+        
+    return mse 
     
 def extract_weights(model):
     # Extract all model weights and return as 1D array

@@ -95,6 +95,8 @@ def get_args():
                         help='Evaluate performance of individual training examples.')
     parser.add_argument('--weight-eval', action='store_true', default=False, 
                         help='Evaluate MSE of weights (linear model).')
+    parser.add_argument('--weight-eval-min', action='store_true', default=False, 
+                        help='Evaluate MSE of weights with target empirical minimum (linear model).')
     parser.add_argument('--save-weights', action='store_true', default=False, 
                         help='Save model weights.')
     parser.add_argument('--details', type=str, metavar='N',

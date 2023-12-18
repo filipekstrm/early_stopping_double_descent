@@ -22,7 +22,7 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
     S = torch.tensor(np.concatenate((s**2, np.zeros(args.dim - s.shape[0]))).reshape(1, -1), dtype=torch.float32)
     #St = ys_t @ Xs_t.T @ V_tensor
 
-    beta_tensor = torch.tensor(beta, dtype=torch.float32).reshape(1, -1)
+    beta_tensor = torch.tensor(ws, dtype=torch.float32).reshape(1, -1)
     eps_tensor = ((ys_t - beta_tensor @ Xs_t) @ Uh_tensor.T)[:, :args.dim]
     
     
@@ -38,6 +38,7 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
     risks = []
     eigenvals = []
     weight_mse = []
+    weight_mse_min = []
     weights = []
     
     weights_norm = np.zeros((args.num_layers, int(args.iterations)))
@@ -70,6 +71,13 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
     risk = risk_fn(yt_pred.T, yt_t.T)
     risks.append(risk.item())
     
+    
+    w_min = 0
+    if args.linear and args.dim < args.samples and args.no_bias:
+        w_min = np.linalg.solve(np.transpose(Xs)@Xs, np.transpose(Xs)@ys)
+        loss_min = loss_fn(Xs@w_min, ys)
+        print(f"Minimum loss: {loss_min}")
+    
     if args.low_rank_eval:
         losses_low.append(np.array([loss_fn((Wtot @ Xs_l.T).T, ys_t.T).item() for Xs_l in Xs_low]))
     if args.ind_eval:
@@ -77,6 +85,9 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
     if args.weight_eval:
         assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
         weight_mse.append((Wtot.squeeze()-ws.squeeze())**2)
+    if args.weight_eval_min:
+        assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
+        weight_mse_min.append((Wtot.squeeze()-w_min.squeeze())**2)
     if args.save_weights:
         weights.append(np.column_stack((u_track[-1], z_track[-1])))
     if args.eigen:
@@ -102,11 +113,12 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
         
         Wtot = u * z @ V_tensor.T
         
-        weights_norm[0, i] = float(torch.norm(u))
-        weights_norm[1, i] = float(torch.norm(z))
+        if args.u is None:
+            weights_norm[0, t] = float(torch.norm(u))
+            grad_norms[0, t] = float(torch.norm(grad_u))
 
-        grad_norms[0, i] = float(torch.norm(grad_u))
-        grad_norms[1, i] = float(torch.norm(grad_z))
+        weights_norm[1, t] = float(torch.norm(z))
+        grad_norms[1, t] = float(torch.norm(grad_z))
 
 
         # Evaluation
@@ -130,6 +142,9 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
         if args.weight_eval:
             assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
             weight_mse.append((Wtot.squeeze()-ws.squeeze())**2)
+        if args.weight_eval_min:
+            assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
+            weight_mse_min.append((Wtot.squeeze()-w_min.squeeze())**2)
         if args.save_weights:
             weights.append(np.column_stack((u_track[-1], z_track[-1])))
 
@@ -138,9 +153,10 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
             
             
     return {"loss": np.array(losses), "risk": np.array(risks), "weight_norm": weights_norm,
-            "eigenvals": None, "grad_norm": grad_norms, "losslowrank": np.row_stack(losses_low) if losses_low else np.array(losses_low),
+            "eigenvals": np.array([]), "grad_norm": grad_norms, "losslowrank": np.row_stack(losses_low) if losses_low else np.array(losses_low),
             "losses_ind": np.row_stack(losses_ind) if losses_low else np.array(losses_ind),
             "weight_mse": np.row_stack(weight_mse) if weight_mse else np.array(weight_mse), 
+            "weight_mse_min": np.row_stack(weight_mse_min) if weight_mse_min else np.array(weight_mse_min),
             "weights": np.row_stack(weights) if weights else np.array(weights)}
 
 

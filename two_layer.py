@@ -100,6 +100,7 @@ def get_args():
 
 def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
     # define loss functions
+    
         
     loss_fn = torch.nn.MSELoss(reduction='sum')
     risk_fn = torch.nn.L1Loss(reduction='mean') if args.risk_loss == 'L1' else loss_fn
@@ -110,15 +111,18 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
     risks = []
     eigenvals = []
     weight_mse = []
+    weight_mse_min = []
     weights = []
     
     weights_norm = np.zeros((args.num_layers, int(args.iterations)))
     grad_norms = np.zeros((args.num_layers, int(args.iterations)))
     
-    if args.num_layers == 1 and args.dim < args.samples and args.no_bias:
+    w_min = 0
+    if args.linear and args.dim < args.samples and args.no_bias:
             w_min = np.linalg.solve(np.transpose(Xs)@Xs, np.transpose(Xs)@ys)
             loss_min = loss_fn(Xs@w_min, ys)
             print(f"Minimum loss: {loss_min}")
+            
         
     if args.num_layers == 1:
     
@@ -134,6 +138,11 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
     else:
         epoch_fun = train_epoch
         
+    if args.eig_val_frac is None:
+        p = int(args.dim / 2)
+    else:
+        p = int(args.eig_val_frac)
+        
        
     # Store risk (and eigenvalues) at initialisation as well
     model.eval()
@@ -146,7 +155,10 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
             losses_ind.append(np.array([loss_fn(model(Xs[i, :].reshape(1, -1)), ys[i]).item() for i in range(args.samples)]))
         if args.weight_eval:
             assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
-            weight_mse.append(calculate_weight_mse(model, true_weights))
+            weight_mse.append(calculate_weight_mse(model, true_weights, p=p))
+        if args.weight_eval_min:
+            assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
+            weight_mse_min.append(calculate_weight_mse(model, w_min.squeeze(), p=p))
         if args.save_weights:
             weights.append(extract_weights(model))
           
@@ -189,8 +201,12 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
 
             if args.weight_eval:
                 assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
-                weight_mse.append(calculate_weight_mse(model, true_weights))
-            
+                weight_mse.append(calculate_weight_mse(model, true_weights, p=p))
+                
+            if args.weight_eval_min:
+                assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
+                weight_mse_min.append(calculate_weight_mse(model, w_min.squeeze(), p=p))
+                       
             if args.save_weights:
                 weights.append(extract_weights(model))
         
@@ -209,6 +225,7 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
             "eigenvals": np.array(eigenvals), "grad_norm": grad_norms, "losslowrank": np.row_stack(losses_low) if losses_low else np.array(losses_low),
             "losses_ind": np.row_stack(losses_ind) if losses_low else np.array(losses_ind),
             "weight_mse": np.row_stack(weight_mse) if weight_mse else np.array(weight_mse), 
+            "weight_mse_min": np.row_stack(weight_mse_min) if weight_mse_min else np.array(weight_mse_min),
             "weights": np.row_stack(weights) if weights else np.array(weights)}
 
 
