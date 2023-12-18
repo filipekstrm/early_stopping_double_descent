@@ -108,12 +108,19 @@ def get_args():
                         help='Freezing model layer.')
     parser.add_argument('--fixed-weight-init', action='store_true', default=False, 
                         help='If initial weights should be set to fixed values, specified by args.scales.')
+    parser.add_argument('--one-rank-init', action='store_true', default=False, 
+                        help='Initialise weights as 1 rank matrices.')
     parser.add_argument('--scaling-layer', action='store_true', default=False,
                         help='Use ScalingLayer as last layer (for analysis).')
     parser.add_argument('--theoretical', action='store_true', default=False,
                         help='Use theoretical model for training (two_layer only).')
     parser.add_argument('--u', type=float, default=None, 
                         help='If given, the value of the interaction term in the theoretical two-layer model will be fixed.')
+    parser.add_argument('--key-word', type=str, default="", 
+                        help='Key word, used for naming saved files.')
+    parser.add_argument('--sweep', type=str, default=None, 
+                        help='Sweep name, used for saving files.')
+                        
  
 
     args = parser.parse_args(sys.argv[1:])

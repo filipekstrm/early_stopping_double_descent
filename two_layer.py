@@ -16,7 +16,7 @@ import torch
 import sys
 sys.path.append('code/')
 from linear_utils import linear_model, is_float
-from train_utils import save_config, prune_data, calculate_weight_mse, extract_weights, ScalingLayer
+from train_utils import save_config, prune_data, calculate_weight_mse, extract_weights, ScalingLayer, kaiming_normal_init, fixed_init, rank_one_init
 from theoretical_model import linear_two_layer_simulation
 
 from sharpness_utilities import sharpness
@@ -280,43 +280,19 @@ def init_model_params(model, args):
     
     if args.scales:
 
+        g_cpu = torch.Generator()
+        g_cpu.manual_seed(args.seed)
+
         if args.fixed_weight_init:
-            i = 0
-            with torch.no_grad():
-                for m in model:
-                    if type(m) == torch.nn.Linear:
-                        if i < (args.num_layers - 1): 
-                            m.weight.data = torch.ones(m.weight.data.shape) * args.scales[0]
-                            print(m.weight.data.shape, args.scales[0])
-                            
-                        elif i == (args.num_layers - 1): 
-                            m.weight.data = torch.ones(m.weight.data.shape) * args.scales[1]
-                            print(m.weight.data.shape, args.scales[1])
-                        i += 1
-                    elif type(m) == ScalingLayer:
-                        m.inner_weight.data = torch.ones(m.inner_weight.data.shape) * args.scales[0]
-                        m.weight.data = torch.ones(m.weight.data.shape) * args.scales[1]
-        
+            model = fixed_init(model, args)
+        elif args.rank_one_init:
+            model = rank_one_init(model, g_cpu, args)
         else:
-            i = 0
-            with torch.no_grad():
-                for m in model:
-                    if type(m) == torch.nn.Linear:
-                        if i < (args.num_layers - 1): # NOTE: hade av misstag lika med här innan (i==0), så fem-lager-resultaten hade inte riktigt denna initialisering
-                            torch.nn.init.kaiming_normal_(m.weight, a=math.sqrt(5))
-                            m.weight.data = torch.mul(m.weight.data, args.scales[0])
-                            print(m.weight.data.shape, args.scales[0])
-                            
-                        elif i == (args.num_layers - 1): 
-                            torch.nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
-                            m.weight.data = torch.mul(m.weight.data, args.scales[1])
-                            print(m.weight.data.shape, args.scales[1])
-                        i += 1
-                    elif type(m) == ScalingLayer:
-                        torch.nn.init.kaiming_normal_(m.inner_weight, a=math.sqrt(5))
-                        m.inner_weight.data = torch.mul(m.inner_weight.data, args.scales[0])
-                        torch.nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
-                        m.weight.data = torch.mul(m.weight.data, args.scales[1])
+            model = kaiming_init(model, g_cpu, args)
+        
+    else:
+        print("Default initialisation, no scales given.")
+
     return model
 
 
@@ -471,50 +447,16 @@ def append_id(filename, id):
 
 
 def get_run_name(args):
-    run_name = f'lr={args.lr[0]}_{args.lr[1]}'
-    
-    if args.batch_norm:
-        run_name += "_batch_norm"
-    
-    if is_float(args.sigmas):
-        run_name += "_uniform_noise"
-        
-    if args.coupled_noise:
-        run_name += f"_coupled_noise"
-        
-    if isinstance(args.sigma_noise, float) and args.sigma_noise > 0.0:
-        run_name += f"_{args.sigma_noise}"
-    else:
-        assert len(args.sigma_noise) == 2
-        run_name += f"_{args.sigma_noise[0]}_{args.sigma_noise[1]}"
 
+    key_word_dict = {"lr1": args.lr[0], "lr2": args.lr[1], "kappa": args.kappa, "hidden": args.hidden, "")
+                    
+    if args.key_word in dict:
+        print("Unrecognised key word")
+        run_name = args.key_word + f"_{key_word_dict[args.key_word]}
+    else:
+        run_name = args.key_word
         
-    if args.dim != 50:
-        run_name += f"_dim_{args.dim}"
-        
-    if args.samples != 100:
-        run_name += f"_samples_{args.samples}"
-        
-    if args.hidden != 50:
-        run_name += f"_hidden_{args.hidden}"
-        
-    if args.pcs is not None:
-        run_name += f"_pcs_{args.pcs}"
-        
-    if args.linear:
-        run_name += "_linear"
-        
-    if not args.no_bias: # NOTE: recently added
-        run_name += "_bias"
-        
-    if args.kappa:
-        run_name += f"_kappa_{args.kappa}"
-        
-    if args.scales[0] != 1.0 or args.scales[1] != 1.0:
-        run_name += f"_w_{args.scales[0]}_{args.scales[1]}" 
-        
-    if args.u is not None and args.theoretical:
-        run_name += f"_fixed_u_{args.u}"
+        assert args.key_word != "", "Empty run name"
         
     return run_name
 
@@ -546,36 +488,33 @@ def get_result_path(args):
     if args.theoretical:
         base_dir = os.path.join(base_dir, "theoretical")
         
+    if args.sweep is not None:
+        base_dir = os.path.join(base_dir, args.sweep)
+        
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)  # (io.get_checkpoint_root())
     
-    result_path = os.path.join(base_dir, run_name + ".csv")
-    return result_path
+    return base_dir
 
 
-def save_results(args, risks, losses=None, additional_data=[]):
+def save_results(args, res):
     result_path = get_result_path(args)
-    data = pd.DataFrame(risks)
+    run_name = get_run_name(args)
     
-    count = 1
-    if losses is not None:
-        data[count] = losses
-        count += 1
-        
-    if additional_data:
-        for d in additional_data:
-            if d.size == 1:
-                d.reshape(-1, 1)
-                
-            #for i in range(d.shape[-1]):
-            #    data[count] = d[:, i]
-            #    count += 1
+    result_file = os.path.join(base_dir, run_name + ".txt")
+    
+    unravelled_res = {}
+    for key, value in res.items():
+        if value.ndim > 1:
+            for i in range(value.shape[-1]):
+                unravelled_res[key + "_" + str(i + 1)] = value[:, i]
             
-            data = pd.concat([data, pd.DataFrame(d, columns=[count + i for i in range(d.shape[-1])])], axis=1)
-            count += d.shape[-1]   
+        else:
+            unravelled_res[key] = value
+    
+    with open(result_file, "w") as f:
+        json.dump(res, f)
         
-    data.to_csv(result_path, header=False, index=False)
-
 
 def plot_results_from_file(result_path, args):
     """
@@ -613,8 +552,11 @@ def main(args):
                
         out = train_model(model, Xs, ys, Xt, yt, Xs_low, ws, args.lr, args) 
 
-    additional_data = [out[key] for key in out if (out[key].size != 0 and key not in ["risk", "loss", "weight_norm", "grad_norm"])] 
-    save_results(args, out["risk"], out["loss"], additional_data)
+    #additional_data = [out[key] for key in out if (out[key].size != 0 and key not in ["risk", "loss", "weight_norm", "grad_norm"])] 
+    #save_results(args, out["risk"], out["loss"], additional_data)
+    for key in out:
+        if out[key].size != 0 and key not in ["weight_norm", "grad_norm"]:
+            save_results
     
     if args.plot:  # for debugging
         plot_results_from_file(get_result_path(args), args)

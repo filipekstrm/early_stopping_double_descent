@@ -222,3 +222,83 @@ def clear_gradients(model):
         if param.requires_grad:
             param.grad = None
             
+            
+            
+# Initialisation
+
+def kaiming_init(model, args):
+
+    i = 0
+    with torch.no_grad():
+        for m in model:
+            if type(m) == torch.nn.Linear:
+                if i < (args.num_layers - 1): # NOTE: hade av misstag lika med här innan (i==0), så fem-lager-resultaten hade inte riktigt denna initialisering
+                    torch.nn.init.kaiming_normal_(m.weight, a=math.sqrt(5), generator=g_cpu)
+                    m.weight.data = torch.mul(m.weight.data, args.scales[0])
+                    print(m.weight.data.shape, args.scales[0])
+                    
+                elif i == (args.num_layers - 1): 
+                    torch.nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5), generator=g_cpu)
+                    m.weight.data = torch.mul(m.weight.data, args.scales[1])
+                    print(m.weight.data.shape, args.scales[1])
+                i += 1
+            elif type(m) == ScalingLayer:
+                torch.nn.init.kaiming_normal_(m.inner_weight, a=math.sqrt(5), generator=g_cpu)
+                m.inner_weight.data = torch.mul(m.inner_weight.data, args.scales[0])
+                torch.nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5), generator=g_cpu)
+                m.weight.data = torch.mul(m.weight.data, args.scales[1])
+
+    return model
+    
+    
+def fixed_init(model, args):
+    i = 0
+    with torch.no_grad():
+        for m in model:
+            if type(m) == torch.nn.Linear:
+                if i < (args.num_layers - 1): 
+                    m.weight.data = torch.ones(m.weight.data.shape) * args.scales[0]
+                    print(m.weight.data.shape, args.scales[0])
+                    
+                elif i == (args.num_layers - 1): 
+                    m.weight.data = torch.ones(m.weight.data.shape) * args.scales[1]
+                    print(m.weight.data.shape, args.scales[1])
+                i += 1
+                
+            elif type(m) == ScalingLayer:
+                m.inner_weight.data = torch.ones(m.inner_weight.data.shape) * args.scales[0]
+                m.weight.data = torch.ones(m.weight.data.shape) * args.scales[1]
+                
+    return model 
+    
+    
+def rank_one_init(model, g_cpu, args):
+
+    i = 0
+    with torch.no_grad(): 
+        p, q, u = 0, 0
+        for m in model:
+            if type(m) == torch.nn.Linear:
+                                
+                if i == 0:
+                    q = torch.normal(mean=0, std=scales[0], size=(m.weight.data.shape[0], 1), generator=g_cpu)
+                    p = torch.nn.normal(mean=0, std=1, size=(m.weight.data.shape[1], 1), generator=g_cpu)
+                    u = 1
+                else:
+                    q = p.clone()
+                    p = torch.normal(mean=0, std=1, (m.weight.data.shape[1], 1), generator=g_cpu)
+                    
+                    if i == 1:
+                        u = torch.normal(mean=0, std=scales[1], size=(), generator=g_cpu)
+                    
+                p /= torch.norm(p, dim=0)
+
+                m.weight.data = u * torch.matmul(p, q.T)
+                
+                i += 1
+                
+            elif type(m) == ScalingLayer:
+                m.inner_weight.data = torch.ones(m.inner_weight.data.shape) * args.scales[0]
+                m.weight.data = torch.ones(m.weight.data.shape) * args.scales[1]
+                
+    return model 
