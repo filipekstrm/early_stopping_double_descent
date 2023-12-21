@@ -274,7 +274,6 @@ def fixed_init(model, args):
     
     
 def rank_one_init(model, g_cpu, args):
-
     i = 0
     with torch.no_grad(): 
         p, q, u = 0, 0, 0
@@ -291,19 +290,14 @@ def rank_one_init(model, g_cpu, args):
                         u = torch.normal(mean=0, std=args.scales[1], size=(), generator=g_cpu)
                     
                 p = torch.normal(mean=0, std=1, size=(m.weight.data.shape[0], 1), generator=g_cpu)
-                p /= torch.norm(p, dim=0)
+                p /= torch.norm(p, dim=0) # = (-)1 for last layer
 
                 m.weight.data = u * torch.matmul(p, q.T)
+               
 
                 i += 1
                 
             elif type(m) == ScalingLayer:
-                z = torch.normal(mean=0, std=args.scales[0], size=(m.inner_weight.data.shape[1], 1), generator=g_cpu)
-                p = torch.normal(mean=0, std=1, size=(m.inner_weight.data.shape[0], 1), generator=g_cpu)
-                q = torch.normal(mean=0, std=1, size=(m.weight.data.shape[0], 1), generator=g_cpu)
-                u = torch.normal(mean=0, std=args.scales[1], size=(), generator=g_cpu)
-                
-                m.inner_weight.data = torch.matmul(p, z.T)
-                m.weight.data = u * torch.matmul(q, p.T)
+                print("Low rank initialisation not implemented for ScalingLayer")
                 
     return model 

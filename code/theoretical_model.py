@@ -165,11 +165,11 @@ def dt(u, z, S, St):
 
 
 def dzdt(u, z, S, St):
-    return u * dt(u, z, S, St)
+    return 2 * u * dt(u, z, S, St)
 
 
 def dudt(u, z, S, St):
-    return (dt(u, z, S, St) @ z.T).squeeze()
+    return 2 * (dt(u, z, S, St) @ z.T).squeeze()
 
 
 # Sampling only noise in output (and assuming that we know the true weights)
@@ -179,9 +179,9 @@ def dt_s(u, z, S, beta, eps):
 
 
 def dzdt_s(u, z, S, beta, eps):
-    return u * dt_s(u, z, S, beta, eps)
+    return 2 * u * dt_s(u, z, S, beta, eps)
 
 
 def dudt_s(u, z, S, beta, eps):
-    return (dt_s(u, z, S, beta, eps) @ z.T).squeeze()
+    return 2 * (dt_s(u, z, S, beta, eps) @ z.T).squeeze()
 

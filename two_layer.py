@@ -57,8 +57,11 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
         if np.isclose(stepsize[0], stepsize[1], rtol=1e-10):
             stepsize = stepsize[0]
         else:
-            # TODO: Use p here?
-            stepsize = torch.tensor(([stepsize[0]] * int(np.ceil(args.dim / 2)), [stepsize[1]] * int(np.floor(args.dim / 2)))).reshape(-1)
+            if args.p is None:
+                stepsize = torch.tensor(([stepsize[0]] * int(np.ceil(args.dim / 2)), [stepsize[1]] * int(np.floor(args.dim / 2)))).reshape(-1)
+            else:
+                stepsize = torch.tensor(([stepsize[0]] * p, [stepsize[1]] * (args.dim - p))).reshape(-1)
+            
             print(stepsize)
         
     else:
