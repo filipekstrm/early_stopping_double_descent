@@ -129,7 +129,7 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
             
         yt_pred = Xt @ Wtot.T
 
-        risk = risk_fn(yt_pred, yt_t)
+        risk = risk_fn(yt_pred, yt)
         risks.append(risk.item())
         
         if args.low_rank_eval:
