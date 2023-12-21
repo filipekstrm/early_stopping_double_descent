@@ -7,24 +7,21 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
 
     
     # Some "pre-processing"
-    
-    # For the sake of not messing anything up
-    Xs_t, ys_t, Xt_t, yt_t = Xs.T, ys.T, Xt.T, yt.T # TODO: transpose everything instead
-
     if args.transform_data:
         V = np.eye(args.dim)
-        Uh = np.transpose(U)
-        _, s, _ = np.linalg.svd(Xs_t.numpy(), full_matrices=True)
+        _, s, _ = np.linalg.svd(Xs.numpy(), full_matrices=True)
     else:
-        V, s, Uh = np.linalg.svd(Xs_t.numpy(), full_matrices=True)
+        Uh, s, V = np.linalg.svd(Xs.numpy(), full_matrices=True)
+        U = np.transpose(Uh)
 
-    V_tensor, Uh_tensor = torch.tensor(V, dtype=torch.float32), torch.tensor(Uh, dtype=torch.float32)
+    V_tensor, U_tensor = torch.tensor(V, dtype=torch.float32), torch.tensor(U, dtype=torch.float32)
     S = torch.tensor(np.concatenate((s**2, np.zeros(args.dim - s.shape[0]))).reshape(1, -1), dtype=torch.float32)
     #St = ys_t @ Xs_t.T @ V_tensor
 
     beta_tensor = torch.tensor(ws, dtype=torch.float32).reshape(1, -1)
-    eps_tensor = ((ys_t - beta_tensor @ Xs_t) @ Uh_tensor.T)[:, :args.dim]
+    eps_tensor = ((ys - Xs @ beta_tensor.T) @ U_tensor)[:, :args.dim]
     
+    assert ys.shape == (Xs.shape[0], 1)
     
     # Loss+risk function
     loss_fn = torch.nn.MSELoss(reduction='sum')
@@ -61,14 +58,14 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
     
     # Initial evaluation    
     Wtot = u * z @ V_tensor.T
-    y_pred = Wtot @ Xs_t
+    y_pred = Xs @ Wtot.T
 
-    loss = loss_fn(y_pred.T, ys_t.T)
+    loss = loss_fn(y_pred, ys)
     losses.append(loss.item())
  
-    yt_pred = Wtot @ Xt_t
+    yt_pred = Xt @ Wtot.T
 
-    risk = risk_fn(yt_pred.T, yt_t.T)
+    risk = risk_fn(yt_pred, yt)
     risks.append(risk.item())
     
     
@@ -79,9 +76,9 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
         print(f"Minimum loss: {loss_min}")
     
     if args.low_rank_eval:
-        losses_low.append(np.array([loss_fn((Wtot @ Xs_l.T).T, ys_t.T).item() for Xs_l in Xs_low]))
+        losses_low.append(np.array([loss_fn((Xs_l @ Wtot.T, ys)).item() for Xs_l in Xs_low]))
     if args.ind_eval:
-        losses_ind.append(np.array([loss_fn((Wtot @ Xs_t[i, :].reshape(-1, 1)).squeeze(), ys_t[i]).item() for i in range(args.samples)]))
+        losses_ind.append(np.array([loss_fn((Xs[i, :].reshape(1, -1) @ Wtot.T).squeeze(), ys[i]).item() for i in range(args.samples)]))
     if args.weight_eval:
         assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
         weight_mse.append((Wtot.squeeze()-ws.squeeze())**2)
@@ -122,23 +119,23 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
 
 
         # Evaluation
-        y_pred = Wtot @ Xs_t
+        y_pred = Xs @ Wtot.T
 
-        loss = loss_fn(y_pred.T, ys_t.T)
+        loss = loss_fn(y_pred, ys)
         losses.append(loss.item())
 
         if not t % args.print_freq:
             print(t, loss.item())
             
-        yt_pred = Wtot @ Xt_t
+        yt_pred = Xt @ Wtot.T
 
-        risk = risk_fn(yt_pred.T, yt_t.T)
+        risk = risk_fn(yt_pred, yt_t)
         risks.append(risk.item())
         
         if args.low_rank_eval:
-            losses_low.append(np.array([loss_fn((Wtot @ Xs_l.T).T, ys_t.T).item() for Xs_l in Xs_low]))
+            losses_low.append(np.array([loss_fn(Xs_l @ Wtot.T, ys).item() for Xs_l in Xs_low]))
         if args.ind_eval:
-            losses_ind.append(np.array([loss_fn((Wtot @ Xs_t[i, :].reshape(-1, 1)).squeeze(), ys_t[i]).item() for i in range(args.samples)]))
+            losses_ind.append(np.array([loss_fn((Xs[i, :].reshape(1, -1) @ Wtot.T).squeeze(), ys[i]).item() for i in range(args.samples)]))
         if args.weight_eval:
             assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
             weight_mse.append((Wtot.squeeze()-ws.squeeze())**2)
