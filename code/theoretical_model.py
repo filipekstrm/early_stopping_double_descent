@@ -31,7 +31,7 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
     #St = ys_t @ Xs_t.T @ V_tensor
 
     beta_tensor = torch.tensor(ws, dtype=torch.float32).reshape(1, -1)
-    eps_tensor_0 = ((ys_t - beta_tensor @ Xs_t) @ Uh_tensor.T)[:, :args.dim]
+    eps_tensor_0 = ((ys - Xs @ beta_tensor.T).T @ Uh_tensor.T)[:, :args.dim]  #TODO: double check that I take the right dimensions?
     eps_tensor = torch.concat((eps_tensor_0, torch.zeros((1, args.dim - s.shape[0]))), dim=-1)
     
     assert ys.shape == (Xs.shape[0], 1)
