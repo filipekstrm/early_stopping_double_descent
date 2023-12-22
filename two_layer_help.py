@@ -110,6 +110,8 @@ def get_args():
                         help='If initial weights should be set to fixed values, specified by args.scales.')
     parser.add_argument('--one-rank-init', action='store_true', default=False, 
                         help='Initialise weights as 1 rank matrices.')
+    parser.add_argument('--compute-rank', action='store_true', default=False, 
+                        help='Compute rank of first layer weight matrix.')
     parser.add_argument('--scaling-layer', action='store_true', default=False,
                         help='Use ScalingLayer as last layer (for analysis).')
     parser.add_argument('--theoretical', action='store_true', default=False,

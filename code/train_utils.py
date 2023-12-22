@@ -9,6 +9,9 @@ import torch
 from torch.utils.data import Dataset
 import torchvision
 
+import sys
+sys.path.append('code/')
+from linear_utils import default_p
 
 class CandidateDataset(Dataset):
     """Candidate dataset."""
@@ -94,7 +97,7 @@ def prune_data(Xs, k):
     return Xs_pruned
     
 
-def calculate_weight_mse(model, target, p=None):
+def calculate_weight_mse(model, target, p=None, zero_eigs=0):
 
     output = None
     for m in model:
@@ -114,9 +117,28 @@ def calculate_weight_mse(model, target, p=None):
     mse = (output - target)**2
     
     if p is not None:
-        mse = np.array((mse[:p].mean(), mse[p:].mean()))
+        if zero_eigs > 0:
+            mse = np.array((mse[:p].mean(), mse[p:-zero_eigs].mean(), mse[-zero_eigs:].mean()))
+        else:
+            mse = np.array((mse[:p].mean(), mse[p:].mean()))
         
     return mse 
+    
+    
+def calculate_weight_mse_raw(output, target, p=None, zero_eigs=0):
+            
+    assert estimate.shape == target.shape
+    
+    mse = (output - target)**2
+    
+    if p is not None:
+        if zero_eigs > 0:
+            mse = np.array((mse[:p].mean(), mse[p:-zero_eigs].mean(), mse[-zero_eigs:].mean()))
+        else:
+            mse = np.array((mse[:p].mean(), mse[p:].mean()))
+        
+    return mse 
+    
     
 def extract_weights(model):
     # Extract all model weights and return as 1D array
@@ -135,54 +157,29 @@ def extract_weights(model):
 
     return np.array(weights)
     
+    
+def get_weights_rank(model, num_layers):
+    # Compute ranks of all layers but the last (it is a vector)
+    ranks = []
+    
+    i = 0
+    for m in model:
+
+        if type(m) == torch.nn.Linear:
+            ranks.append(torch.linalg.matrix_rank(m.weight.data))
+            i += 1
+            
+        if i == (num_layers - 1):
+            break
+
+    return np.array(ranks)
+    
 
 def adjust_learning_rate(optimizer, epoch, args):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     lr = args.lr * (args.lrdecay ** (epoch // 30))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
-
-
-class AverageMeter(object):
-    """Computes and stores the average and current value"""
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-        
-class ScalingLayer(torch.nn.Module):
-    """ Custom Linear layer but mimics a standard linear layer """
-    def __init__(self, size_in, size_hidden):
-        super().__init__()
-        self.size_in, self.size_out = size_in, 1
-        inner_weight = torch.Tensor(size_in, size_hidden)
-        weight = torch.Tensor(self.size_out, size_in) 
-        self.inner_weight = torch.nn.Parameter(weight)
-        self.weight = torch.nn.Parameter(weight)  
-
-        # initialize weights 
-        torch.nn.init.kaiming_uniform_(self.inner_weight, a=np.sqrt(5)) 
-        fan_in, _ = torch.nn.init._calculate_fan_in_and_fan_out(self.inner_weight)
-        
-        torch.nn.init.kaiming_uniform_(self.weight, a=np.sqrt(5)) 
-        fan_in, _ = torch.nn.init._calculate_fan_in_and_fan_out(self.weight)
-        
-    def _theta(self):
-        return (self.inner_weight * self.weight.sum(dim=-1, keepdims=True)).t()
-
-    def forward(self, x):
-        weight_mat = self._theta()
-        return torch.mm(x, weight_mat)
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
@@ -301,3 +298,73 @@ def rank_one_init(model, g_cpu, args):
                 print("Low rank initialisation not implemented for ScalingLayer")
                 
     return model 
+
+
+def count_zero_eigvals(args):
+    
+    zero_eigs = 0 if args.dim <= args.samples else (args.dim - args.samples)
+    
+    return zero_eigs
+    
+    
+def count_largest_eigvals(args):
+    if args.kappa is None:
+        p = None
+    else:
+        zero_eigs = count_zero_eigvals(args)
+        p1 = args.eig_val_frac * args.dim if args.eig_val_frac is not None else default_p(args.dim, zero_eigs) # The number of eigenvalues equal to 1
+        p = p1 if args.kappa <= 1.0 else (args.dim - zero_eigs - p1)
+        
+    return p
+    
+    
+def get_w_min(Xs, ys, zero_eigs=0):
+    if zero_eigs > 0:
+        w_min = (np.transpose(Xs)@np.linalg.inv(Xs@np.transpose(Xs))@ys).squeeze()
+    else:
+        w_min = np.linalg.solve(np.transpose(Xs)@Xs, np.transpose(Xs)@ys)
+    
+    return w_min
+    
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+        
+        
+class ScalingLayer(torch.nn.Module):
+    """ Custom Linear layer but mimics a standard linear layer """
+    def __init__(self, size_in, size_hidden):
+        super().__init__()
+        self.size_in, self.size_out = size_in, 1
+        inner_weight = torch.Tensor(size_in, size_hidden)
+        weight = torch.Tensor(self.size_out, size_in) 
+        self.inner_weight = torch.nn.Parameter(weight)
+        self.weight = torch.nn.Parameter(weight)  
+
+        # initialize weights 
+        torch.nn.init.kaiming_uniform_(self.inner_weight, a=np.sqrt(5)) 
+        fan_in, _ = torch.nn.init._calculate_fan_in_and_fan_out(self.inner_weight)
+        
+        torch.nn.init.kaiming_uniform_(self.weight, a=np.sqrt(5)) 
+        fan_in, _ = torch.nn.init._calculate_fan_in_and_fan_out(self.weight)
+        
+    def _theta(self):
+        return (self.inner_weight * self.weight.sum(dim=-1, keepdims=True)).t()
+
+    def forward(self, x):
+        weight_mat = self._theta()
+        return torch.mm(x, weight_mat)
+    

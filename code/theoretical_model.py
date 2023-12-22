@@ -1,28 +1,41 @@
 import numpy as np
 import torch
-
+ 
+sys.path.append('code/')
+from train_utils import calculate_weight_mse_raw, count_zero_eigvals, count_largest_eigvals
 
 
 def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
 
     
     # Some "pre-processing"
+    
+    # TODO: do this from data instead
+    zero_eigs = count_zero_eigvals(args)
+    p = count_largest_eigvals(args)
+
+
     if args.transform_data:
         V = np.eye(args.dim)
         _, s, _ = np.linalg.svd(Xs.numpy(), full_matrices=True)
+        
+        
     else:
         Uh, s, V = np.linalg.svd(Xs.numpy(), full_matrices=True)
         U = np.transpose(Uh)
 
     V_tensor, U_tensor = torch.tensor(V, dtype=torch.float32), torch.tensor(U, dtype=torch.float32)
+    
+    assert zero_eigs == args.dim - s.shape[0]
     S = torch.tensor(np.concatenate((s**2, np.zeros(args.dim - s.shape[0]))).reshape(1, -1), dtype=torch.float32)
     #St = ys_t @ Xs_t.T @ V_tensor
 
     beta_tensor = torch.tensor(ws, dtype=torch.float32).reshape(1, -1)
-    eps_tensor = ((ys - Xs @ beta_tensor.T) @ U_tensor)[:, :args.dim]
+    eps_tensor_0 = ((ys_t - beta_tensor @ Xs_t) @ Uh_tensor.T)[:, :args.dim]
+    eps_tensor = torch.concat((eps_tensor_0, torch.zeros((1, args.dim - s.shape[0]))), dim=-1)
     
     assert ys.shape == (Xs.shape[0], 1)
-    
+
     # Loss+risk function
     loss_fn = torch.nn.MSELoss(reduction='sum')
     risk_fn = torch.nn.L1Loss(reduction='mean') if args.risk_loss == 'L1' else loss_fn
@@ -55,7 +68,13 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
     u_track, z_track = [], []
     u_track.append(u)
     z_track.append(z)
-    
+      
+    w_min = 0
+    if args.linear and args.dim < args.samples and args.no_bias:
+        w_min = get_w_min(Xs, ys, zero_eigs)
+        loss_min = loss_fn(Xs@w_min, ys)
+        print(f"Minimum loss: {loss_min}")    
+        
     # Initial evaluation    
     Wtot = u * z @ V_tensor.T
     y_pred = Xs @ Wtot.T
@@ -67,13 +86,7 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
 
     risk = risk_fn(yt_pred, yt)
     risks.append(risk.item())
-    
-    
-    w_min = 0
-    if args.linear and args.dim < args.samples and args.no_bias:
-        w_min = np.linalg.solve(np.transpose(Xs)@Xs, np.transpose(Xs)@ys)
-        loss_min = loss_fn(Xs@w_min, ys)
-        print(f"Minimum loss: {loss_min}")
+
     
     if args.low_rank_eval:
         losses_low.append(np.array([loss_fn((Xs_l @ Wtot.T, ys)).item() for Xs_l in Xs_low]))
@@ -81,10 +94,11 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
         losses_ind.append(np.array([loss_fn((Xs[i, :].reshape(1, -1) @ Wtot.T).squeeze(), ys[i]).item() for i in range(args.samples)]))
     if args.weight_eval:
         assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
-        weight_mse.append((Wtot.squeeze()-ws.squeeze())**2)
+               
+        weight_mse.append(calculate_weight_mse_raw(Wtot.squeeze(), ws.squeeze(), p=p, zero_eigs=zero_eigs))
     if args.weight_eval_min:
         assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
-        weight_mse_min.append((Wtot.squeeze()-w_min.squeeze())**2)
+        weight_mse_min.append(calculate_weight_mse_raw(Wtot.squeeze(), w_min.squeeze(), p=p, zero_eigs=zero_eigs))
     if args.save_weights:
         weights.append(np.column_stack((u_track[-1], z_track[-1])))
     if args.eigen:
@@ -138,10 +152,10 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
             losses_ind.append(np.array([loss_fn((Xs[i, :].reshape(1, -1) @ Wtot.T).squeeze(), ys[i]).item() for i in range(args.samples)]))
         if args.weight_eval:
             assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
-            weight_mse.append((Wtot.squeeze()-ws.squeeze())**2)
+            weight_mse.append(calculate_weight_mse_raw(Wtot.squeeze(), ws.squeeze(), p=p, zero_eigs=zero_eigs))
         if args.weight_eval_min:
             assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
-            weight_mse_min.append((Wtot.squeeze()-w_min.squeeze())**2)
+            weight_mse_min.append(calculate_weight_mse_raw(Wtot.squeeze(), w_min.squeeze(), p=p, zero_eigs=zero_eigs))
         if args.save_weights:
             weights.append(np.column_stack((u_track[-1], z_track[-1])))
 

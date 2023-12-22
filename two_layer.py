@@ -16,7 +16,7 @@ import torch
 import sys
 sys.path.append('code/')
 from linear_utils import linear_model, is_float
-from train_utils import save_config, prune_data, calculate_weight_mse, extract_weights, ScalingLayer, kaiming_init, fixed_init, rank_one_init
+from train_utils import save_config, prune_data, calculate_weight_mse, extract_weights, get_weights_rank, ScalingLayer, kaiming_init, fixed_init, rank_one_init, count_zero_eigvals, count_largest_eigvals
 from theoretical_model import linear_two_layer_simulation
 
 from sharpness_utilities import sharpness
@@ -39,16 +39,21 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
     weight_mse = []
     weight_mse_min = []
     weights = []
+    weights_rank = []
     
     weights_norm = np.zeros((args.num_layers, int(args.iterations)))
     grad_norms = np.zeros((args.num_layers, int(args.iterations)))
     
+    zero_eigs = count_zero_eigs(args)
+    p = count_largest_eigvals(args)
+
+
     w_min = 0
     if args.linear and args.dim < args.samples and args.no_bias:
-            w_min = np.linalg.solve(np.transpose(Xs)@Xs, np.transpose(Xs)@ys)
-            loss_min = loss_fn(Xs@w_min, ys)
-            print(f"Minimum loss: {loss_min}")
-            
+        w_min = get_w_min(Xs, ys, zero_eigs)
+        loss_min = loss_fn(Xs@w_min, ys)
+        print(f"Minimum loss: {loss_min}")  
+        
         
     if args.num_layers == 1:
     
@@ -67,11 +72,6 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
     else:
         epoch_fun = train_epoch
         
-    if args.eig_val_frac is None:
-        p = int(args.dim / 2)
-    else:
-        p = int(args.eig_val_frac)
-        
        
     # Store risk (and eigenvalues) at initialisation as well
     model.eval()
@@ -84,12 +84,15 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
             losses_ind.append(np.array([loss_fn(model(Xs[i, :].reshape(1, -1)), ys[i]).item() for i in range(args.samples)]))
         if args.weight_eval:
             assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
-            weight_mse.append(calculate_weight_mse(model, true_weights, p=p))
+            weight_mse.append(calculate_weight_mse(model, true_weights, p=p, zero_eigs=zero_eigs))
         if args.weight_eval_min:
             assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
-            weight_mse_min.append(calculate_weight_mse(model, w_min.squeeze(), p=p))
+            weight_mse_min.append(calculate_weight_mse(model, w_min.squeeze(), p=p, zero_eigs=zero_eigs))
         if args.save_weights:
             weights.append(extract_weights(model))
+        if args.compute_rank:
+            weights_rank.append(get_weights_rank(model))
+        
           
 
     if args.eigen:
@@ -130,14 +133,16 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
 
             if args.weight_eval:
                 assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
-                weight_mse.append(calculate_weight_mse(model, true_weights, p=p))
+                weight_mse.append(calculate_weight_mse(model, true_weights, p=p, zero_eigs=zero_eigs))
                 
             if args.weight_eval_min:
                 assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
-                weight_mse_min.append(calculate_weight_mse(model, w_min.squeeze(), p=p))
+                weight_mse_min.append(calculate_weight_mse(model, w_min.squeeze(), p=p, zero_eigs=zero_eigs))
                        
             if args.save_weights:
                 weights.append(extract_weights(model))
+            if args.compute_rank:
+                weights_rank.append(get_weights_rank(model))
         
         
         if args.eigen:
@@ -155,7 +160,8 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
             "losses_ind": np.row_stack(losses_ind) if losses_low else np.array(losses_ind),
             "weight_mse": np.row_stack(weight_mse) if weight_mse else np.array(weight_mse), 
             "weight_mse_min": np.row_stack(weight_mse_min) if weight_mse_min else np.array(weight_mse_min),
-            "weights": np.row_stack(weights) if weights else np.array(weights)}
+            "weights": np.row_stack(weights) if weights else np.array(weights),
+            "rank": np.row_stack(weights_rank) if weights_rank else np.array(weights_rank)}
 
 
 def train_epoch(model, stepsize, args):
@@ -306,8 +312,10 @@ def get_dataset(args, return_extra=False):
         p = None
     else:
         p = args.eig_val_frac*args.dim
+        
+    zero_eigs = count_zero_eigvals(args)
   
-    lin_model = linear_model(args.dim, sigma_noise=args.sigma_noise, beta=args.beta, scale_beta=args.scale_beta, normalized=False, sigmas=args.sigmas, s_range=args.s_range, coupled_noise=args.coupled_noise, transform_data=args.transform_data, kappa=args.kappa, p=p)
+    lin_model = linear_model(args.dim, sigma_noise=args.sigma_noise, beta=args.beta, scale_beta=args.scale_beta, normalized=False, sigmas=args.sigmas, s_range=args.s_range, coupled_noise=args.coupled_noise, transform_data=args.transform_data, kappa=args.kappa, p=p, zero_eigs=zero_eigs)
     Xs, ys = lin_model.sample(args.samples, train=True)
     Xs = torch.Tensor(Xs).to(args.device)
     ys = torch.Tensor(ys.reshape((-1, 1))).to(args.device)
