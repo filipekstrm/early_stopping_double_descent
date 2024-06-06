@@ -4,25 +4,31 @@ from scipy.stats import ortho_group
 
 
 class linear_model():
-    def __init__(self, d, sigma_noise=0, beta=None, scale_beta=False, normalized=True, sigmas=None, s_range=[1,10], coupled_noise=False, transform_data=False, kappa=None, p=None, cont_eigs=False, zero_eigs=0):
+    def __init__(self, d, dy=1, sigma_noise=0, beta=None, scale_beta=False, normalized=True, sigmas=None, s_range=[1,10], coupled_noise=False, transform_data=False, kappa=None, p=None, cont_eigs=False, zero_eigs=0, scale_noise=1.0):
         self.d = d
+        self.dy = dy
+        
         if beta is None:
-            self.beta = np.random.randn(self.d)
+            self.beta = np.random.randn(self.d * self.dy).reshape(self.d, self.dy)
             #self.beta = np.ones(self.d)
         else:
             self.beta = beta
-            assert beta.shape[0] == self.d
             
-      
+            self.beta = self.beta.reshape(-1, self.dy)            
+            assert self.beta.shape == (self.d, self.dy)
+
+     
+        # TODO: städa bort oanvända / lägg i "self.properties" dict
         self.sigma_noise = sigma_noise
         self.coupled_noise = coupled_noise
         self.transform_data = transform_data
         self.transform_mat = None
-        self.right_singular_vecs = None
+        self.left_singular_vecs = None
         self.kappa = kappa
         self.cont_eigs = cont_eigs
         self.zero_eigs = zero_eigs
         self.p = p if p is not None else default_p(d, zero_eigs) # The number of eigenvalues equal to 1
+        self.scale_noise = scale_noise
 
         if kappa is not None and scale_beta:
             F = self.modulation_matrix()
@@ -31,6 +37,8 @@ class linear_model():
                 self.beta = np.concatenate((np.linalg.inv(F)@self.beta[:-self.zero_eigs], self.beta[-self.zero_eigs:])) 
             else:
                 self.beta = np.linalg.inv(F)@self.beta
+                
+            print(self.beta)
        
         if is_float(sigmas):
             sigmas = float(sigmas)
@@ -68,7 +76,7 @@ class linear_model():
         if self.transform_data or self.kappa:
             if train:
                 U, S, Vh = np.linalg.svd(Xs, full_matrices=True)
-                self.right_singular_vecs = U
+                self.left_singular_vecs = U
             
                 if self.transform_data:
                     self.transform_mat = np.transpose(Vh) 
@@ -131,7 +139,7 @@ class linear_model():
                     eps = (V @ np.concatenate((z, sigma_noise[1]*np.random.randn(self.d - n))))[:n] # TODO: this is probably not how to do it? Also when considering noise in all dirs?
                 
                 
-                ys += eps 
+                ys += self.scale_noise * eps 
                 
         else:
 
@@ -140,20 +148,22 @@ class linear_model():
             else:
                 sigma_noise = self.sigma_noise
             
-            ys = []
-            for i in range(n):
-                y = Xs[i, :] @ self.beta #+ sigma_noise*np.random.randn(1)[0] # TODO: noise free test data?
-                ys += [y]
+            #ys = []
+            #for i in range(n):
+            #    y = Xs[i, :] @ self.beta #+ sigma_noise*np.random.randn(1)[0] # TODO: noise free test data?
+            #    ys += [y]
                 
-            ys = np.array(ys)
+            #ys = np.array(ys)
+            
+            ys = Xs @ self.beta
             
             # NOTE: I HAVE MADE CHANGES HERE (TEST DATA WAS NOT NOISE FREE BEFORE)
             # WOULD IT MAKE SENSE TO SET THE LOWER NOISE LEVEL FOR TEST?
             if train: 
                 split = int(np.ceil(n / 2))
-                eps = np.concatenate([sigma_noise[0]*np.random.randn(split), sigma_noise[1]*np.random.randn(n - split)])
+                eps = np.concatenate([sigma_noise[0]*np.random.randn(split, self.dy), sigma_noise[1]*np.random.randn(n - split, self.dy)])
                 np.random.shuffle(eps)
-                ys += eps
+                ys += self.scale_noise * eps
         
         return Xs, ys
         
@@ -200,4 +210,4 @@ def is_float(element: any) -> bool:
         return True
     except ValueError:
         return False
-        
+

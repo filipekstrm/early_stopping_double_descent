@@ -96,21 +96,22 @@ def prune_data(Xs, k):
     
     return Xs_pruned
     
+    
+    
 
 def calculate_weight_mse(model, target, p=None, zero_eigs=0):
 
-    output = None
-    for m in model:
-
-        if type(m) == torch.nn.Linear:
-            if output is None:
-                output = m.weight.data.t()
-            else:
-                output = output @ m.weight.data.t()
-        elif type(m) == ScalingLayer:
-            output = m._theta()
+    output = extract_total_weights(model)
        
-    output = output.numpy().squeeze(axis=-1)
+    output = output.squeeze() #numpy().squeeze(axis=-1) # TODO: Innan hade jag numpy här utan problem; hur?
+    target = target.squeeze()
+    
+    assert output.shape == target.shape
+
+    return calculate_weight_mse_raw(output, target, p, zero_eigs)
+       
+    
+def calculate_weight_mse_raw(output, target, p=None, zero_eigs=0):
             
     assert output.shape == target.shape
     
@@ -124,21 +125,20 @@ def calculate_weight_mse(model, target, p=None, zero_eigs=0):
         
     return mse 
     
-    
-def calculate_weight_mse_raw(output, target, p=None, zero_eigs=0):
-            
-    assert estimate.shape == target.shape
-    
-    mse = (output - target)**2
-    
-    if p is not None:
-        if zero_eigs > 0:
-            mse = np.array((mse[:p].mean(), mse[p:-zero_eigs].mean(), mse[-zero_eigs:].mean()))
-        else:
-            mse = np.array((mse[:p].mean(), mse[p:].mean()))
+
+def extract_total_weights(model):
+    output = None
+    for m in model:
+
+        if type(m) == torch.nn.Linear:
+            if output is None:
+                output = m.weight.data.t()
+            else:
+                output = output @ m.weight.data.t()
+        elif type(m) == ScalingLayer:
+            output = m._theta()
         
-    return mse 
-    
+    return output
     
 def extract_weights(model):
     # Extract all model weights and return as 1D array
@@ -155,7 +155,7 @@ def extract_weights(model):
         elif type(m) == ScalingLayer:
             output = weights.append(m._theta().numpy().reshape(-1))
 
-    return np.array(weights)
+    return np.concatenate(weights)
     
     
 def get_weights_rank(model, num_layers):
@@ -166,7 +166,13 @@ def get_weights_rank(model, num_layers):
     for m in model:
 
         if type(m) == torch.nn.Linear:
-            ranks.append(torch.linalg.matrix_rank(m.weight.data))
+        
+            if m.weight.data.isnan().any() or m.weight.data.isinf().any():
+                ranks.append(float('nan'))
+            
+            else:
+                ranks.append(torch.linalg.matrix_rank(m.weight.data))
+            
             i += 1
             
         if i == (num_layers - 1):
@@ -258,6 +264,12 @@ def fixed_init(model, args):
                     m.weight.data = torch.ones(m.weight.data.shape) * args.scales[0]
                     print(m.weight.data.shape, args.scales[0])
                     
+                    if (i == 0) and (args.small_eig_init_factor != 1.0):
+                        p = count_largest_eigvals(args)
+                        m.weight.data[:, p:] *= args.small_eig_init_factor
+                        print(m.weight.data)
+                        
+                    
                 elif i == (args.num_layers - 1): 
                     m.weight.data = torch.ones(m.weight.data.shape) * args.scales[1]
                     print(m.weight.data.shape, args.scales[1])
@@ -278,19 +290,26 @@ def rank_one_init(model, g_cpu, args):
             if type(m) == torch.nn.Linear:
                                 
                 if i == 0:
-                    q = torch.normal(mean=0, std=args.scales[0], size=(m.weight.data.shape[1], 1), generator=g_cpu)
+                
+                    if args.fixed_weight_init:
+                        q = torch.ones((m.weight.data.shape[1], 1)) * args.scales[0]
+                    else:
+                        q = torch.normal(mean=0, std=args.scales[0], size=(m.weight.data.shape[1], 1), generator=g_cpu)
+                    
                     u = 1
                 else:
                     q = p.clone()
                     
-                    if i == 1:
-                        u = torch.normal(mean=0, std=args.scales[1], size=(), generator=g_cpu)
+                    if i == 1: # u is then shared among the remaining layers
+                        if args.fixed_weight_init:
+                            u = torch.tensor(args.scales[1])
+                        else:
+                            u = torch.normal(mean=0, std=args.scales[1], size=(), generator=g_cpu)
                     
                 p = torch.normal(mean=0, std=1, size=(m.weight.data.shape[0], 1), generator=g_cpu)
                 p /= torch.norm(p, dim=0) # = (-)1 for last layer
 
-                m.weight.data = u * torch.matmul(p, q.T)
-               
+                m.weight.data = u * torch.matmul(p, q.T)               
 
                 i += 1
                 
@@ -320,7 +339,7 @@ def count_largest_eigvals(args):
     
 def get_w_min(Xs, ys, zero_eigs=0):
     if zero_eigs > 0:
-        w_min = (np.transpose(Xs)@np.linalg.inv(Xs@np.transpose(Xs))@ys).squeeze()
+        w_min = (np.transpose(Xs)@np.linalg.inv(Xs@np.transpose(Xs))@ys) #.squeeze()
     else:
         w_min = np.linalg.solve(np.transpose(Xs)@Xs, np.transpose(Xs)@ys)
     

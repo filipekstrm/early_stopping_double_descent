@@ -1,8 +1,9 @@
 import numpy as np
 import torch
- 
+import sys
+
 sys.path.append('code/')
-from train_utils import calculate_weight_mse_raw, count_zero_eigvals, count_largest_eigvals
+from train_utils import calculate_weight_mse_raw, count_zero_eigvals, count_largest_eigvals, get_w_min
 
 
 def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
@@ -21,8 +22,8 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
         
         
     else:
-        Uh, s, V = np.linalg.svd(Xs.numpy(), full_matrices=True)
-        U = np.transpose(Uh)
+        U, s, Vh = np.linalg.svd(Xs.numpy(), full_matrices=True)
+        V = np.transpose(Vh)
 
     V_tensor, U_tensor = torch.tensor(V, dtype=torch.float32), torch.tensor(U, dtype=torch.float32)
     
@@ -31,7 +32,7 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
     #St = ys_t @ Xs_t.T @ V_tensor
 
     beta_tensor = torch.tensor(ws, dtype=torch.float32).reshape(1, -1)
-    eps_tensor_0 = ((ys - Xs @ beta_tensor.T).T @ Uh_tensor.T)[:, :args.dim]  #TODO: double check that I take the right dimensions?
+    eps_tensor_0 = ((ys - Xs @ beta_tensor.T).T @ U_tensor)[:, :args.dim]  #TODO: double check that I take the right dimensions?
     eps_tensor = torch.concat((eps_tensor_0, torch.zeros((1, args.dim - s.shape[0]))), dim=-1)
     
     assert ys.shape == (Xs.shape[0], 1)
@@ -51,27 +52,35 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
     weight_mse_min = []
     weights = []
     
-    weights_norm = np.zeros((args.num_layers, int(args.iterations)))
-    grad_norms = np.zeros((args.num_layers, int(args.iterations)))
+    weights_norm = np.zeros((args.num_layers, int(args.iterations) + 1))
+    grad_norms = np.zeros((args.num_layers, int(args.iterations) + 1))
     
     # Initialisation
     g_cpu = torch.Generator()
     g_cpu.manual_seed(args.seed)
     
     if args.u is None:
-        u = torch.normal(0, torch.tensor(args.scales[1]), generator=g_cpu)
+        if args.fixed_weight_init:
+            u = torch.tensor(args.scales[1])
+        else:
+            u = torch.normal(0, torch.tensor(args.scales[1]), generator=g_cpu)
     else:
         u = torch.tensor(args.u)
     
-    z = torch.normal(0, torch.tensor(args.scales[0]), size=(1, args.dim), generator=g_cpu)
+    if args.fixed_weight_init:
+        z = torch.ones((1, args.dim)) * args.scales[0]
+        z[0, p:] *= args.small_eig_init_factor
+    else:
+        z = torch.normal(0, torch.tensor(args.scales[0]), size=(1, args.dim), generator=g_cpu)
 
     u_track, z_track = [], []
     u_track.append(u)
     z_track.append(z)
       
     w_min = 0
-    if args.linear and args.dim < args.samples and args.no_bias:
+    if args.linear and args.no_bias: # args.dim < args.samples and
         w_min = get_w_min(Xs, ys, zero_eigs)
+        print(f"Global minimum: {w_min}")
         loss_min = loss_fn(Xs@w_min, ys)
         print(f"Minimum loss: {loss_min}")    
         
@@ -101,6 +110,14 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
         weight_mse_min.append(calculate_weight_mse_raw(Wtot.squeeze(), w_min.squeeze(), p=p, zero_eigs=zero_eigs))
     if args.save_weights:
         weights.append(np.column_stack((u_track[-1], z_track[-1])))
+        
+    weights_norm[0, 0], weights_norm[1, 0]  = float(torch.norm(u)), float(torch.norm(z))
+    
+    print(f"Initial weights: {u * z}")
+    print(u)
+    print(z)
+    
+    
     if args.eigen:
         print("Hessian eigenvalues not calculated for theoretical model") 
     
@@ -125,11 +142,11 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
         Wtot = u * z @ V_tensor.T
         
         if args.u is None:
-            weights_norm[0, t] = float(torch.norm(u))
-            grad_norms[0, t] = float(torch.norm(grad_u))
+            weights_norm[0, t + 1] = float(torch.norm(u))
+            grad_norms[0, t + 1] = float(torch.norm(grad_u))
 
-        weights_norm[1, t] = float(torch.norm(z))
-        grad_norms[1, t] = float(torch.norm(grad_z))
+        weights_norm[1, t + 1] = float(torch.norm(z))
+        grad_norms[1, t + 1] = float(torch.norm(grad_z))
 
 
         # Evaluation
@@ -163,8 +180,8 @@ def linear_two_layer_simulation(Xs, ys, Xt, yt, Xs_low, U, ws, lr, args):
             print(t, risk.item())
             
             
-    return {"loss": np.array(losses), "risk": np.array(risks), "weight_norm": weights_norm,
-            "eigenvals": np.array([]), "grad_norm": grad_norms, "losslowrank": np.row_stack(losses_low) if losses_low else np.array(losses_low),
+    return {"loss": np.array(losses), "risk": np.array(risks), "weight_norm": np.transpose(weights_norm),
+            "eigenvals": np.array([]), "grad_norm": np.transpose(grad_norms), "losslowrank": np.row_stack(losses_low) if losses_low else np.array(losses_low),
             "losses_ind": np.row_stack(losses_ind) if losses_low else np.array(losses_ind),
             "weight_mse": np.row_stack(weight_mse) if weight_mse else np.array(weight_mse), 
             "weight_mse_min": np.row_stack(weight_mse_min) if weight_mse_min else np.array(weight_mse_min),

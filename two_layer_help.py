@@ -31,6 +31,8 @@ def get_args():
                         help='Iterations (default: 1e4)')
     parser.add_argument('-n', '--samples', type=int, default=100, metavar='N',
                         help='Number of samples (default: 100)')
+    parser.add_argument('--test-samples', type=int, default=None,
+                        help='Number of test samples. Same as number of training samples if None (default: None))')
     parser.add_argument('--print-freq', type=int, default=100,
                         help='CLI output printing frequency (default: 1000)')
     parser.add_argument('--gpu', type=int, default=None,
@@ -59,6 +61,10 @@ def get_args():
                         help='Scaling true parameters with inverse modulation matrix (only if beta is given).')
     parser.add_argument('--coupled_noise', action='store_true', default=False,
                         help='Couple noise in output to large eigenvalues.')
+    parser.add_argument('--scale_noise', type=float, default=1.0,
+                        help='A tool for changing the sign of noise terms when sampling data (to shift global minimum).')
+    parser.add_argument('--standardise', action='store_true', default=False,
+                        help='If data should be standardised.')
     parser.add_argument('-r', '--s-range', nargs='*', type=float,
                         help='Range for sigmas')
     parser.add_argument('-w', '--scales', nargs='*', type=float,
@@ -108,6 +114,8 @@ def get_args():
                         help='Freezing model layer.')
     parser.add_argument('--fixed-weight-init', action='store_true', default=False, 
                         help='If initial weights should be set to fixed values, specified by args.scales.')
+    parser.add_argument('--small-eig-init-factor', type=float, default=1.0, 
+                        help='Scale initialised weights corresponding to small eigenvalues with this factor.')
     parser.add_argument('--one-rank-init', action='store_true', default=False, 
                         help='Initialise weights as 1 rank matrices.')
     parser.add_argument('--compute-rank', action='store_true', default=False, 
@@ -120,6 +128,8 @@ def get_args():
                         help='If given, the value of the interaction term in the theoretical two-layer model will be fixed.')
     parser.add_argument('--key-word', type=str, default="", 
                         help='Key word, used for naming saved files.')
+    parser.add_argument('--save-step', type=int, default=1, 
+                        help='Data is saved every save-step step.')
     parser.add_argument('--sweep', type=str, default=None, 
                         help='Sweep name, used for saving files.')
                         

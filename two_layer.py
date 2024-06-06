@@ -16,7 +16,7 @@ import torch
 import sys
 sys.path.append('code/')
 from linear_utils import linear_model, is_float
-from train_utils import save_config, prune_data, calculate_weight_mse, extract_weights, get_weights_rank, ScalingLayer, kaiming_init, fixed_init, rank_one_init, count_zero_eigvals, count_largest_eigvals
+from train_utils import save_config, prune_data, calculate_weight_mse, extract_weights, extract_total_weights, get_weights_rank, ScalingLayer, kaiming_init, fixed_init, rank_one_init, count_zero_eigvals, count_largest_eigvals, get_w_min
 from theoretical_model import linear_two_layer_simulation
 
 from sharpness_utilities import sharpness
@@ -41,15 +41,15 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
     weights = []
     weights_rank = []
     
-    weights_norm = np.zeros((args.num_layers, int(args.iterations)))
-    grad_norms = np.zeros((args.num_layers, int(args.iterations)))
+    weights_norm = np.zeros((args.num_layers, int(args.iterations) + 1))
+    grad_norms = np.zeros((args.num_layers, int(args.iterations) + 1))
     
-    zero_eigs = count_zero_eigs(args)
+    zero_eigs = count_zero_eigvals(args)
     p = count_largest_eigvals(args)
 
 
     w_min = 0
-    if args.linear and args.dim < args.samples and args.no_bias:
+    if args.linear and args.no_bias: # args.dim < args.samples and 
         w_min = get_w_min(Xs, ys, zero_eigs)
         loss_min = loss_fn(Xs@w_min, ys)
         print(f"Minimum loss: {loss_min}")  
@@ -89,12 +89,20 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
             assert args.linear and args.no_bias, "Weight evaluation not appropriate for non-linear model or model with bias"
             weight_mse_min.append(calculate_weight_mse(model, w_min.squeeze(), p=p, zero_eigs=zero_eigs))
         if args.save_weights:
-            weights.append(extract_weights(model))
+            weights.append(extract_total_weights(model).reshape(-1)) # (extract_weights(model))
         if args.compute_rank:
-            weights_rank.append(get_weights_rank(model))
+            weights_rank.append(get_weights_rank(model, num_layers=args.num_layers))
+            
+        i = -1
+        for param in model.parameters():
         
-          
-
+            if len(param.shape) > 1:
+                i += 1
+                weights_norm[i, 0] = float(torch.norm(param.data.flatten()))
+                
+                if param.grad is not None:
+                    grad_norms[i, 0] = float(torch.norm(param.grad.flatten()))
+        
     if args.eigen:
         evals = sharpness.get_hessian_eigenvalues(model, loss_fn, sharpness.DatasetWrapper(Xs, ys), args)
         eigenvals.append(float(evals[0]))
@@ -113,7 +121,7 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
         loss.backward()
         
         with torch.no_grad():
-            weights_norm[:, t], grad_norms[:, t] = epoch_fun(model, stepsize, args)
+            weights_norm[:, t + 1], grad_norms[:, t + 1] = epoch_fun(model, stepsize, args)
 
         model.eval()
         with torch.no_grad():
@@ -140,9 +148,9 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
                 weight_mse_min.append(calculate_weight_mse(model, w_min.squeeze(), p=p, zero_eigs=zero_eigs))
                        
             if args.save_weights:
-                weights.append(extract_weights(model))
+                weights.append(extract_total_weights(model).reshape(-1)) # (extract_weights(model))
             if args.compute_rank:
-                weights_rank.append(get_weights_rank(model))
+                weights_rank.append(get_weights_rank(model, num_layers=args.num_layers))
         
         
         if args.eigen:
@@ -154,9 +162,10 @@ def train_model(model, Xs, ys, Xt, yt, Xs_low, true_weights, stepsize, args):
     
     y_pred = model(Xs)
     losses.append(loss_fn(y_pred, ys).item())
+ 
 
-    return {"loss": np.array(losses), "risk": np.array(risks), "weight_norm": weights_norm,
-            "eigenvals": np.array(eigenvals), "grad_norm": grad_norms, "losslowrank": np.row_stack(losses_low) if losses_low else np.array(losses_low),
+    return {"loss": np.array(losses), "risk": np.array(risks), "weight_norm": np.transpose(weights_norm),
+            "eigenvals": np.array(eigenvals), "grad_norm": np.transpose(grad_norms), "losslowrank": np.row_stack(losses_low) if losses_low else np.array(losses_low),
             "losses_ind": np.row_stack(losses_ind) if losses_low else np.array(losses_ind),
             "weight_mse": np.row_stack(weight_mse) if weight_mse else np.array(weight_mse), 
             "weight_mse_min": np.row_stack(weight_mse_min) if weight_mse_min else np.array(weight_mse_min),
@@ -218,11 +227,14 @@ def init_model_params(model, args):
         g_cpu = torch.Generator()
         g_cpu.manual_seed(args.seed)
 
-        if args.fixed_weight_init:
-            model = fixed_init(model, args)
-        elif args.one_rank_init:
+        if args.one_rank_init:
+            print("Initialising model with rank one initialisation")
             model = rank_one_init(model, g_cpu, args)
+        elif args.fixed_weight_init:
+            print("Initialising model with fixed initialisation")
+            model = fixed_init(model, args)
         else:
+            print("Initialising model with kaiming initialisation")
             model = kaiming_init(model, g_cpu, args)
         
     else:
@@ -315,18 +327,28 @@ def get_dataset(args, return_extra=False):
         
     zero_eigs = count_zero_eigvals(args)
   
-    lin_model = linear_model(args.dim, sigma_noise=args.sigma_noise, beta=args.beta, scale_beta=args.scale_beta, normalized=False, sigmas=args.sigmas, s_range=args.s_range, coupled_noise=args.coupled_noise, transform_data=args.transform_data, kappa=args.kappa, p=p, zero_eigs=zero_eigs)
+    lin_model = linear_model(args.dim, sigma_noise=args.sigma_noise, beta=args.beta, scale_beta=args.scale_beta, normalized=False, sigmas=args.sigmas, s_range=args.s_range, coupled_noise=args.coupled_noise, transform_data=args.transform_data, kappa=args.kappa, p=p, zero_eigs=zero_eigs, scale_noise=args.scale_noise)
     Xs, ys = lin_model.sample(args.samples, train=True)
+    
+    # sample test set
+    num_test_samples = args.samples if args.test_samples is None else args.test_samples
+    Xt, yt = lin_model.sample(num_test_samples, train=False) # * 1000
+    
+    if args.standardise:
+        print("Standardisation of data can cause errors in theoretical model")
+        Xt = (Xt - Xs.mean(axis=0)) / Xs.std(axis=0)
+        Xs = (Xs - Xs.mean(axis=0)) / Xs.std(axis=0)
+    
+
     Xs = torch.Tensor(Xs).to(args.device)
     ys = torch.Tensor(ys.reshape((-1, 1))).to(args.device)
-
-    # sample the set for empirical risk calculation
-    Xt, yt = lin_model.sample(args.samples, train=False) # * 1000
+  
     Xt = torch.Tensor(Xt).to(args.device)
     yt = torch.Tensor(yt.reshape((-1, 1))).to(args.device)
     
+
     if return_extra:
-        return Xs, ys, Xt, yt, lin_model.right_singular_vecs, lin_model.beta
+        return Xs, ys, Xt, yt, lin_model.left_singular_vecs, lin_model.beta
     else:
         return Xs, ys, Xt, yt
 
@@ -441,14 +463,20 @@ def save_results(args, res):
     result_file = os.path.join(result_path, run_name + ".txt")
     print("Saving data to " + result_file)
     
+    
+    sample_inds = np.arange(0, args.iterations + 1, args.save_step)
+    
     unravelled_res = {}
     for key, value in res.items():
         if value.ndim > 1:
             for i in range(value.shape[-1]):
-                unravelled_res[key + "_" + str(i + 1)] = value[:, i].tolist()
+                unravelled_res[key + "_" + str(i + 1)] = value[sample_inds, i].tolist()
             
         else:
-            unravelled_res[key] = value.tolist()
+            if value.shape[0] > 0:
+                unravelled_res[key] = value[sample_inds].tolist()
+            else:
+                unravelled_res[key] = value.tolist()
     
     with open(result_file, "w") as f:
         json.dump(unravelled_res, f)
@@ -490,6 +518,9 @@ def main(args):
                
         out = train_model(model, Xs, ys, Xt, yt, Xs_low, ws, args.lr, args) 
 
+    weight_norm = out["weight_norm"] #out.pop("weight_norm")
+    grad_norm = out["grad_norm"] #out.pop("grad_norm")
+
     #additional_data = [out[key] for key in out if (out[key].size != 0 and key not in ["risk", "loss", "weight_norm", "grad_norm"])] 
     #save_results(args, out["risk"], out["loss"], additional_data)
     save_results(args, out)
@@ -497,14 +528,16 @@ def main(args):
     if args.plot:  # for debugging
         plot_results_from_file(get_result_path(args), args)
         plot_individual_run(out["risk"], args, "Risk", append_id(get_run_name(args) + ".pdf", "risk"))
-        plot_individual_run(out["weight_norm"][0], args, "W norm", append_id(get_run_name(args) + ".pdf", "W_norm"))
-        plot_individual_run(out["weight_norm"][1], args, "v norm", append_id(get_run_name(args) + ".pdf", "v_norm"))
+        plot_individual_run(weight_norm[0], args, "W norm", append_id(get_run_name(args) + ".pdf", "W_norm"))
+        plot_individual_run(weight_norm[1], args, "v norm", append_id(get_run_name(args) + ".pdf", "v_norm"))
         if args.eigen:
             plot_individual_run(out["eigenvals"], args, "Leading eigenvalue of Hessian", append_id(get_run_name(args) + ".pdf", "eigenvals"))
-        plot_individual_run(out["grad_norm"][0]*args.lr[0], args, " effective grad(W) norm", append_id(get_run_name(args) + ".pdf", "w_grad_norm"))
-        plot_individual_run(out["grad_norm"][1]*args.lr[1], args, "effective grad(v) norm",
+        plot_individual_run(grad_norm[0]*args.lr[0], args, " effective grad(W) norm", append_id(get_run_name(args) + ".pdf", "w_grad_norm"))
+        plot_individual_run(weight_norm[1]*args.lr[1], args, "effective grad(v) norm",
                             append_id(get_run_name(args) + ".pdf", "v_grad_norm"))
 
 if __name__ == "__main__":
     args = get_args()
     main(args)
+    
+extract_weights 
